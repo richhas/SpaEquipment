@@ -122,24 +122,30 @@ protected:
 // The first bytes of the EEPROM are used to store the configuration for this device
 //
 #pragma pack(push, 1)
-template <typename TBlk> 
-struct Config
+template <typename TBlk, uint16_t TBaseOfRecord> 
+class FlashStore
 {
+private:
     union
     {
         struct
         {
-            TBlk        _configRec;
+            TBlk        _record;
             uint8_t     _onesComp[sizeof(TBlk)];           // 1's comp of the the above - correctness checks
         };
 
         uint8_t         _bytes[2 * sizeof(TBlk)];    
     };
 
-    Config()
+public:
+    FlashStore() = delete;
+
+    FlashStore(uint16_t Base)
     {
-        EEPROM.get(0, *this);
+        EEPROM.get(TBaseOfRecord, *this);
     }
+
+    TBlk& GetRecord() { return _record; }
 
     bool IsValid()
     {
@@ -158,12 +164,24 @@ struct Config
 public:
     void Write()
     {
-        for (byte ix = 0; ix < sizeof(Config::_onesComp); ix++)
+        for (byte ix = 0; ix < sizeof(FlashStore::_onesComp); ix++)
         {
-            Config::_onesComp[ix] = ~Config::_bytes[ix];
+            FlashStore::_onesComp[ix] = ~FlashStore::_bytes[ix];
         }
 
-        EEPROM.put(0, *this);
+        EEPROM.put(TBaseOfRecord, *this);
+    }
+
+    void Erase()
+    {
+        for(int ix = 0; ix < sizeof(*this); ix++)
+        {
+            EEPROM.write(ix + TBaseOfRecord, 0);
+        }
+        EEPROM.get(TBaseOfRecord, *this);
     }
 };
 #pragma pack(pop) 
+
+//* Common support functions
+extern int printf(Stream& ToStream, const char* Format, ...);

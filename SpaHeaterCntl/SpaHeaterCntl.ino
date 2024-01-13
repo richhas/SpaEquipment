@@ -2,56 +2,38 @@
 
 #include "SpaHeaterCntl.h"
 
-
-#pragma pack(push, 1) 
-struct WiFiClientConfig
-{
-  uint8_t       _version;
-  const int         CurrentVersion = 1;
-
-  // Version 1 and > fields
-  char          _ssid[32];
-  char          _networkPassword[32];
-};
-#pragma pack(pop) 
-
-
-ConsoleTask consoleTask(Serial);
+ConsoleTask     consoleTask(Serial);
+LedMatrixTask   matrixTask(Serial, 50);
+WiFiJoinApTask  wifiJoinApTask(Serial);
 
 
 void setup() 
 {
+    matrixTask.setup();
+    matrixTask.PutString("S00");
+
     Serial.begin(9600);
     delay(1000);
 
+    matrixTask.PutString("S01");
     consoleTask.setup();
-
-    // check for the WiFi module:
-    if (WiFi.status() == WL_NO_MODULE) 
-    {
-      Serial.println("Communication with WiFi module failed!");
-      $FailFast();
-    }
-
-    String fv = WiFi.firmwareVersion();
-    if (fv < WIFI_FIRMWARE_LATEST_VERSION) 
-    {
-        Serial.println("Please upgrade the firmware");
-    }
+    matrixTask.PutString("S02");
+    wifiJoinApTask.setup();
+    matrixTask.PutString("S03");
 
     /*
-    Config<WiFiClientConfig> t1;
+    FlashStore<WiFiClientConfig> t1;
     if (t1.IsValid())
     {
       Serial.print("Config is valid: ");
-      Serial.print(t1._configRec._version);
+      Serial.print(t1.GetRecord()._version);
       Serial.println(" -- increasing version.");
-      t1._configRec._version++;
+      t1.GetRecord()._version++;
     }
     else
     {
       Serial.println("Config is not valid - initializing...");
-      t1._configRec._version = 1;
+      t1.GetRecord()._version = 1;
     }
 
     t1.Write();
@@ -62,4 +44,6 @@ void setup()
 void loop() 
 {
     consoleTask.loop();
+    matrixTask.loop();
+    wifiJoinApTask.loop();
 }

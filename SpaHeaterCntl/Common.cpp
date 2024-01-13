@@ -6,6 +6,9 @@
 #include <Arduino.h>
 #include "common.h"
 
+#include <cstdarg>
+#include <cstdio>
+
 
 void __attribute__ ((noinline)) FailFast(char* FileName, int LineNumber)
 {
@@ -71,3 +74,18 @@ void __attribute__ ((noinline)) FailFast(char* FileName, int LineNumber)
     #error "Target build processor is not known"
 #endif
 */
+
+//* Common support functions
+int printf(Stream& ToStream, const char* Format, ...)
+{
+    char    buffer[1024];
+    va_list args;
+
+    va_start(args, Format);
+    int size = vsnprintf(&buffer[0], sizeof(buffer), Format, args);
+    ToStream.print(&buffer[0]);
+    va_end(args);
+
+    return size;
+}
+

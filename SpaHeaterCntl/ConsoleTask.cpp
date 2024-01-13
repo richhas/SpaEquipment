@@ -1,7 +1,7 @@
 // SPA Heater Controller for Maxie HA system 2024 (c)TinyBus
 // ConsoleTask implementation
 
-#include "ConsoleTask.h"
+#include "SpaHeaterCntl.h"
 
 // WIFI Network enumeration
 
@@ -117,10 +117,23 @@ CmdLine::Status ListNetsProcessor(Stream& CmdStream, int Argc, char const** Args
     return CmdLine::Status::Ok;
 }
 
+CmdLine::Status SetLedDisplayProcessor(Stream& CmdStream, int Argc, char const** Args, void* Context)
+{
+    if (Argc != 2)
+    {
+        return CmdLine::Status::TooManyParameters;
+    }
+
+    matrixTask.PutString((char*)(Args[1]));
+
+    return CmdLine::Status::Ok;
+}
+
 CmdLine::ProcessorDesc  consoleTaskCmdProcessors[] =
 {
     {ClearEEPROMProcessor, "clearEPROM", "Clear all of the EEPROM"},
-    {ListNetsProcessor, "listWiFiNets", "Discover and list all wifi networks"},
+    {ListNetsProcessor, "listNets", "Discover and list all wifi networks"},
+    {SetLedDisplayProcessor, "ledDisplay", "Put tring to Led Matrix"},
 };
 
 ConsoleTask::ConsoleTask(Stream& Output)
