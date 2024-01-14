@@ -11,6 +11,8 @@
 #include "AnsiTerm.h"
 #include "Eventing.h"
 #include <WiFi.h>
+#include <WiFiS3.h>
+
 
 // System States for admin and led matrix display
 const uint8_t     SS_Startup01 = 0;         // consider an enum
@@ -85,6 +87,9 @@ private:
 
     FlashStore<Config, PS_NetworkConfigBase>  _config;
     Stream&             _traceOutput;
+    WiFiServer          _server;
+    WiFiClient          _client;
+    String              _currentLine;
 
 public:
     WiFiJoinApTask() = delete;

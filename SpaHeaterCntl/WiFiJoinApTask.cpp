@@ -1,12 +1,13 @@
 // SPA Heater Controller for Maxie HA system 2024 (c)TinyBus
 // WiFiJoinApTask implementation
 
-#include <WiFiS3.h>
 #include "SpaHeaterCntl.h"
 
 WiFiJoinApTask::WiFiJoinApTask(Stream& TraceOutput)
     :   _traceOutput(TraceOutput),
-        _config(PS_NetworkConfigBase)
+        _config(PS_NetworkConfigBase),
+        _server(80),
+        _client(-1)
 {
 }
 
@@ -69,8 +70,7 @@ void WiFiJoinApTask::setup()
         _traceOutput.println("Please upgrade the firmware");
     }
 
-      pinMode(led, OUTPUT);      // set the LED pin mode
-
+    pinMode(led, OUTPUT);      // set the LED pin mode
 }
 
 
@@ -91,6 +91,27 @@ void printWiFiStatus(Stream& ToStream)
 }
 
 
+// Helper function to extract value for a given key
+String getValueByKey(String data, String key) {
+    String value = "";
+    int startPos = data.indexOf(key + "=");
+    if (startPos != -1) {
+        int endPos = data.indexOf('&', startPos);
+        if (endPos == -1) {
+            endPos = data.length();
+        }
+        value = data.substring(startPos + key.length() + 1, endPos);
+    }
+    return value;
+}
+
+// Function to parse the POST data
+void parsePostData(String postData, String &network, String &wifiPassword, String &telnetAdminPassword) {
+    network = getValueByKey(postData, "SSID");
+    wifiPassword = getValueByKey(postData, "wifiPassword");
+    telnetAdminPassword = getValueByKey(postData, "telnetAdminPassword");
+}
+
 void WiFiJoinApTask::loop() 
 {
     // Statemachine used when config is invalid: creates an AP and a webserver to accept a user's network config. And then
@@ -103,6 +124,8 @@ void WiFiJoinApTask::loop()
         WaitForApToForm,
         WatchForClient,
         ClientConnected,
+        EatPostHeader,
+        ProcessFormData,
         CloseClientConnection,
         FreeServer,
     };
@@ -129,7 +152,7 @@ void WiFiJoinApTask::loop()
         break;
 
         static Timer      delayTimer;
-        static uint8_t    status;
+        static uint8_t    status = WL_IDLE_STATUS;
 
         case State::FormAP:
         {
@@ -153,8 +176,6 @@ void WiFiJoinApTask::loop()
         }
         break;
 
-        static WiFiServer server;
-
         case State::WaitForApToForm:
         {
             matrixTask.PutString("N02");
@@ -163,8 +184,8 @@ void WiFiJoinApTask::loop()
                 return;
             }
 
-            // start the web server on port 80
-            server.begin(80);
+            // start the web server - port 80
+            _server.begin();
 
             printWiFiStatus(_traceOutput);
 
@@ -172,9 +193,6 @@ void WiFiJoinApTask::loop()
             state = State::WatchForClient;
         }
         break;
-
-        static WiFiClient client;
-        static String     currentLine;
 
         case State::WatchForClient:
         {
@@ -197,10 +215,11 @@ void WiFiJoinApTask::loop()
                 }
             }
 
-            client = server.available();
-            if (client)
+            _client = _server.available();
+            if (_client)
             {
-                currentLine = "";
+                _traceOutput.println("new client");
+                _currentLine = "";
                 state = State::ClientConnected;
             }
         }
@@ -209,74 +228,189 @@ void WiFiJoinApTask::loop()
         case State::ClientConnected:
         {
             matrixTask.PutString("N06");
-            if (!client.connected())
+            if (!_client.connected())
             {
                 state = State::CloseClientConnection;
                 return;
             }
 
             delayMicroseconds(10);
-            if (client.available()) 
-            {                                         // if there's bytes to read from the client,
-                char c = client.read();             // read a byte, then
+            if (_client.available()) 
+            {                                        // if there's bytes to read from the client,
+                char c = _client.read();            // read a byte, then
                 _traceOutput.write(c);              // print it out to the serial monitor
                 if (c == '\n') 
                 {                                   // if the byte is a newline character
                     // if the current line is blank, you got two newline characters in a row.
                     // that's the end of the client HTTP request, so send a response:
-                    if (currentLine.length() == 0) 
+                    if (_currentLine.length() == 0) 
                     {
                         // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
                         // and a content-type so the client knows what's coming, then a blank line:
-                        client.println("HTTP/1.1 200 OK");
-                        client.println("Content-type:text/html");
-                        client.println();
+                        _client.println("HTTP/1.1 200 OK");
+                        _client.println("Content-type:text/html");
+                        _client.println();
 
                         // the content of the HTTP response follows the header:
-                        client.print("<p style=\"font-size:7vw;\">Click <a href=\"/H\">here</a> turn the LED on<br></p>");
-                        client.print("<p style=\"font-size:7vw;\">Click <a href=\"/L\">here</a> turn the LED off<br></p>");
+                        static char page[] = 
+                            "<!DOCTYPE html>"
+                            "<html>"
+                            "<head>"
+                            "    <title>Wi-Fi Configuration</title>"
+                            "</head>"
+                            "<body>"
+                            "    <h1>Wi-Fi Configuration</h1> <!-- Visible Title Block -->"
+                            "    <h2>Wi-Fi Setup</h2>"
+                            "    <form action=\"/submit\" method=\"post\">"
+                            "        <br><br>"
+                            "        <label for=\"SSID\">SSID:</label>"
+                            "        <input type=\"SSID\" id=\"SSID\" name=\"SSID\">"
+                            "        <label for=\"wifiPassword\">Wi-Fi Password:</label>"
+                            "        <input type=\"password\" id=\"wifiPassword\" name=\"wifiPassword\">"
+                            "        <br><br>"
+                            "        <label for=\"telnetAdminPassword\">Telnet Administrator Password:</label>"
+                            "        <input type=\"password\" id=\"telnetAdminPassword\" name=\"telnetAdminPassword\">"
+                            "        <br><br>"
+                            "        <input type=\"submit\" value=\"Submit\">"
+                            "    </form>"
+                            "</body>"
+                            "</html>";                          
+
+                        _client.print(page);
+                        //_client.print("<p style=\"font-size:7vw;\">Click <a href=\"/H\">here</a> turn the LED on<br></p>");
+                        //_client.print("<p style=\"font-size:7vw;\">Click <a href=\"/L\">here</a> turn the LED off<br></p>");
 
                         // The HTTP response ends with another blank line:
-                        client.println();
+                        _client.println();
+
                         // break out of the while loop:
-                        state = State::CloseClientConnection;
+                        _client.stop();
+                        _traceOutput.println("client disconnected");
+
+                        state = State::WatchForClient;
+                        matrixTask.PutString("N03");
                         return;
                     }
                     else 
                     {   // if you got a newline, then clear currentLine:
-                        currentLine = "";
+                        _currentLine = "";
                     }
                 }
                 else if (c != '\r') 
                 {             
                     // if you got anything else but a carriage return character,
-                    currentLine += c;      // add it to the end of the currentLine
+                    _currentLine += c;      // add it to the end of the currentLine
                 }
-                // Check to see if the client request was "GET /H" or "GET /L":
-                if (currentLine.endsWith("GET /H")) 
+
+                if (_currentLine.startsWith("POST /submit"))
                 {
-                    digitalWrite(led, HIGH);               // GET /H turns the LED on
+                    state = State::EatPostHeader;
+                    _currentLine = "";
+                    return;
                 }
-                if (currentLine.endsWith("GET /L")) 
-                {
-                    digitalWrite(led, LOW);                // GET /L turns the LED off
+            }
+        }
+        break;
+
+        static int    contentLength;
+
+        case State::EatPostHeader:
+        {
+            matrixTask.PutString("N08");
+            if (!_client.connected())
+            {
+                state = State::CloseClientConnection;
+                return;
+            }
+
+            delayMicroseconds(10);
+            if (_client.available()) 
+            {                                        // if there's bytes to read from the client,
+                char c = _client.read();            // read a byte, then
+                _traceOutput.write(c);              // print it out to the serial monitor
+
+            
+                if (c == '\n') 
+                {                                   // if the byte is a newline character
+                    // if the current line is blank, you got two newline characters in a row.
+                    // that's the end of the client HTTP request, so get the submitted form data:
+                    if (_currentLine.length() == 0) 
+                    {
+                        _traceOutput.println("**BLANK LINE**");
+                        state = State::ProcessFormData;
+                        return;
+                    }
+                    else 
+                    { 
+                        // Check for content length header
+                        if (_currentLine.startsWith("Content-Length: "))
+                        {
+                            contentLength = _currentLine.substring(16).toInt();
+                            printf(_traceOutput, "Have content length of: %i\n", contentLength);
+                        }
+                          // if you got a newline, then clear currentLine:
+                        _currentLine = "";
+                    }
                 }
+                else if (c != '\r') 
+                {             
+                    // if you got anything else but a carriage return character,
+                    _currentLine += c;      // add it to the end of the currentLine
+                }
+            }
+        }
+        break;
+
+        case State::ProcessFormData:
+        {
+            matrixTask.PutString("N09");
+            if (!_client.connected())
+            {
+                state = State::CloseClientConnection;
+                return;
+            }
+
+            if (contentLength == 0)
+            {
+                String  netName;
+                String  netPw;
+                String  adminPw;
+
+                parsePostData(_currentLine, netName, netPw, adminPw);
+                printf(_traceOutput, "\nPosted Config data: SSID: '%s'; password: '%s'; admin pw: '%s'\n",
+                      netName.c_str(), netPw.c_str(), adminPw.c_str());
+
+
+                // We have our config data and are ready to write valid config 
+                //_config.GetRecord()
+
+                state = State::CloseClientConnection;
+                return;
+            }
+
+            delayMicroseconds(10);
+            if (_client.available()) 
+            {                                        // if there's bytes to read from the client,
+                char c = _client.read();            // read a byte, then
+                _traceOutput.write(c);              // print it out to the serial monitor
+                _currentLine += c;
+                contentLength--;
             }
         }
         break;
 
         case State::CloseClientConnection:
         {
-            matrixTask.PutString("N07");
-            matrixTask.PutString("N03");
+            matrixTask.PutString("N10");
             state = State::WatchForClient;
-            client.stop();
+            _client.stop();
+            _traceOutput.println("client disconnected");
         }
         break;
 
         case State::FreeServer:
         {
-            server.end();
+            _server.end();
             state = State::WatchConfig;
         }
         break;
