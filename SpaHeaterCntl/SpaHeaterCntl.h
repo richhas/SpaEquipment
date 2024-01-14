@@ -75,18 +75,19 @@ private:
     #pragma pack(push, 1) 
     struct Config
     {
-      uint8_t       _version;
-      const int         CurrentVersion = 1;
+      uint8_t               _version;
+      static const int         CurrentVersion = 1;
 
       // Version 1 and > fields
-      char          _ssid[32];                        // selected WiFi network - zero if not configured
-      char          _networkPassword[32];             // zero if not set
-      char          _adminPassword[32];               // Telnet admin password - zero if not set
+      char                  _ssid[32];                        // selected WiFi network - zero if not configured
+      char                  _networkPassword[32];             // zero if not set
+      char                  _adminPassword[32];               // Telnet admin password - zero if not set
     };
     #pragma pack(pop)
 
     FlashStore<Config, PS_NetworkConfigBase>  _config;
     Stream&             _traceOutput;
+    bool                _isInSleepState;
     WiFiServer          _server;
     WiFiClient          _client;
     String              _currentLine;
@@ -96,6 +97,7 @@ public:
     WiFiJoinApTask(Stream& TraceOutput);
     ~WiFiJoinApTask();
 
+    bool IsCompleted() { return _isInSleepState; }
     bool IsConfigured() { return _config.IsValid(); }
     void GetNetworkConfig(String& SSID, String& Password);
     void EraseConfig();
@@ -103,9 +105,16 @@ public:
 
     virtual void setup();
     virtual void loop();
+
+private:
+    static String GetValueByKey(String& Data, String Key);
+    static void ParsePostData(String& PostData, String& Network, String& WifiPassword, String& TelnetAdminPassword);
+    static void PrintWiFiStatus(Stream& ToStream);
 };
 
 
 // Cross module references
-extern class ConsoleTask consoleTask;
-extern class LedMatrixTask matrixTask;
+extern class ConsoleTask      consoleTask;
+extern class LedMatrixTask    matrixTask;
+extern class WiFiJoinApTask   wifiJoinApTask;
+

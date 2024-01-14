@@ -103,10 +103,7 @@ void listNetworks()
 CmdLine::Status ClearEEPROMProcessor(Stream& CmdStream, int Argc, char const** Args, void* Context)
 {
     CmdStream.println("Starting EEPROM Erase...");
-    for (int i = 0 ; i < EEPROM.length() ; i++) 
-    {
-        EEPROM.write(i, 0);
-    }
+    wifiJoinApTask.EraseConfig();
     CmdStream.println("EEPROM Erase has completed");
     return CmdLine::Status::Ok;
 }
@@ -129,11 +126,28 @@ CmdLine::Status SetLedDisplayProcessor(Stream& CmdStream, int Argc, char const**
     return CmdLine::Status::Ok;
 }
 
+CmdLine::Status DumpProcessor(Stream& CmdStream, int Argc, char const** Args, void* Context)
+{
+    if (Argc > 2)
+    {
+        return CmdLine::Status::TooManyParameters;
+    }
+
+    if (strcmp(Args[1], "wificonfig") == 0)
+    {
+        wifiJoinApTask.DumpConfig(CmdStream);
+        CmdStream.println();
+    }
+
+    return CmdLine::Status::Ok;
+}
+
 CmdLine::ProcessorDesc  consoleTaskCmdProcessors[] =
 {
     {ClearEEPROMProcessor, "clearEPROM", "Clear all of the EEPROM"},
     {ListNetsProcessor, "listNets", "Discover and list all wifi networks"},
     {SetLedDisplayProcessor, "ledDisplay", "Put tring to Led Matrix"},
+    {DumpProcessor, "dump", "Dump internal state"},
 };
 
 ConsoleTask::ConsoleTask(Stream& Output)

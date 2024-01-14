@@ -6,6 +6,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <memory.h>
 #include <EEPROM.h>
 
 //** Hard Fault primitives 
@@ -138,20 +139,23 @@ private:
     };
 
 public:
-    FlashStore() = delete;
-
-    FlashStore(uint16_t Base)
+    FlashStore()
     {
-        EEPROM.get(TBaseOfRecord, *this);
+        memset(&_bytes[0], 0, sizeof _bytes);
+    }
+
+    void Begin()
+    {
+        EEPROM.get(TBaseOfRecord, _bytes);
     }
 
     TBlk& GetRecord() { return _record; }
 
     bool IsValid()
     {
-        for (byte ix = 0; ix < sizeof(_onesComp); ix++)
+        for (byte ix = 0; ix < sizeof(FlashStore::_onesComp); ix++)
         {
-            uint8_t t = ~_bytes[ix];        // Bug in compiler
+            uint8_t t = ~(_bytes[ix]);
             if (t != _onesComp[ix])
             {
                 return false;
@@ -166,10 +170,10 @@ public:
     {
         for (byte ix = 0; ix < sizeof(FlashStore::_onesComp); ix++)
         {
-            FlashStore::_onesComp[ix] = ~FlashStore::_bytes[ix];
+            _onesComp[ix] = ~(_bytes[ix]);
         }
 
-        EEPROM.put(TBaseOfRecord, *this);
+        EEPROM.put(TBaseOfRecord, _bytes);
     }
 
     void Erase()
@@ -178,7 +182,7 @@ public:
         {
             EEPROM.write(ix + TBaseOfRecord, 0);
         }
-        EEPROM.get(TBaseOfRecord, *this);
+        EEPROM.get(TBaseOfRecord, _bytes);
     }
 };
 #pragma pack(pop) 

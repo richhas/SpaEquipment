@@ -6,6 +6,19 @@ ConsoleTask     consoleTask(Serial);
 LedMatrixTask   matrixTask(Serial, 50);
 WiFiJoinApTask  wifiJoinApTask(Serial);
 
+// Tasks to add:
+//    Not WiFi dependent:
+//      Thermo
+//      Boiler
+//      DiagLog
+//
+//    WiFi dependent:
+//      NetworkMonitor
+//
+//    NetworkMonitor dependent:
+//      AdminTelnetServer
+//      MqttClient      
+
 
 void setup() 
 {
@@ -20,25 +33,6 @@ void setup()
     matrixTask.PutString("S02");
     wifiJoinApTask.setup();
     matrixTask.PutString("S03");
-
-    /*
-    FlashStore<WiFiClientConfig> t1;
-    if (t1.IsValid())
-    {
-      Serial.print("Config is valid: ");
-      Serial.print(t1.GetRecord()._version);
-      Serial.println(" -- increasing version.");
-      t1.GetRecord()._version++;
-    }
-    else
-    {
-      Serial.println("Config is not valid - initializing...");
-      t1.GetRecord()._version = 1;
-    }
-
-    t1.Write();
-    Serial.println("Done");
-    */
 }
 
 void loop() 
@@ -46,4 +40,21 @@ void loop()
     consoleTask.loop();
     matrixTask.loop();
     wifiJoinApTask.loop();
+
+    // Network dependent Tasks will get started and given time only after we kow we have a valid
+    // wifi config
+    if (wifiJoinApTask.IsCompleted())
+    {
+        $Assert(wifiJoinApTask.IsConfigured());
+
+        static bool     firstTime = true;
+
+        if (firstTime)
+        {
+            // First time we've had the wifi config completed - let wifi dependent Tasks set up
+            firstTime = true;
+        }
+
+        // Give each wifi dependent Task time
+    }
 }

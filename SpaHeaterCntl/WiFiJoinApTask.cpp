@@ -2,12 +2,17 @@
 // WiFiJoinApTask implementation
 
 #include "SpaHeaterCntl.h"
+#include <memory.h>
+#include <string.h>
+
+// #define debugOut
 
 WiFiJoinApTask::WiFiJoinApTask(Stream& TraceOutput)
     :   _traceOutput(TraceOutput),
-        _config(PS_NetworkConfigBase),
+        _config(),
         _server(80),
-        _client(-1)
+        _client(-1),
+        _isInSleepState(false)
 {
 }
 
@@ -42,11 +47,10 @@ void WiFiJoinApTask::DumpConfig(Stream& ToStream)
                      config._ssid, config._networkPassword, config._adminPassword);
 }
 
-int led =  LED_BUILTIN;
-
 void WiFiJoinApTask::setup()
 {
     _traceOutput.print("WiFiJoinApTask is active - ");
+    _config.Begin();
     if (_config.IsValid())
     {
         _traceOutput.println("Config is valid");
@@ -59,57 +63,17 @@ void WiFiJoinApTask::setup()
     // check for the WiFi module
     if (WiFi.status() == WL_NO_MODULE) 
     {
-      _traceOutput.println("Communication with WiFi module failed!");
-      _traceOutput.flush();
-      $FailFast();
+        _traceOutput.println("Communication with WiFi module failed!");
+        _traceOutput.flush();
+        $FailFast();
     }
 
+    // warn if FW out of date
     String fv = WiFi.firmwareVersion();
     if (fv < WIFI_FIRMWARE_LATEST_VERSION) 
     {
         _traceOutput.println("Please upgrade the firmware");
     }
-
-    pinMode(led, OUTPUT);      // set the LED pin mode
-}
-
-
-void printWiFiStatus(Stream& ToStream) 
-{
-    // print the SSID of the network you're attached to:
-    ToStream.print("SSID: ");
-    ToStream.println(WiFi.SSID());
-
-    // print your WiFi shield's IP address:
-    IPAddress ip = WiFi.localIP();
-    ToStream.print("IP Address: ");
-    ToStream.println(ip);
-
-    // print where to go in a browser:
-    ToStream.print("To see this page in action, open a browser to http://");
-    ToStream.println(ip);
-}
-
-
-// Helper function to extract value for a given key
-String getValueByKey(String data, String key) {
-    String value = "";
-    int startPos = data.indexOf(key + "=");
-    if (startPos != -1) {
-        int endPos = data.indexOf('&', startPos);
-        if (endPos == -1) {
-            endPos = data.length();
-        }
-        value = data.substring(startPos + key.length() + 1, endPos);
-    }
-    return value;
-}
-
-// Function to parse the POST data
-void parsePostData(String postData, String &network, String &wifiPassword, String &telnetAdminPassword) {
-    network = getValueByKey(postData, "SSID");
-    wifiPassword = getValueByKey(postData, "wifiPassword");
-    telnetAdminPassword = getValueByKey(postData, "telnetAdminPassword");
 }
 
 void WiFiJoinApTask::loop() 
@@ -126,32 +90,40 @@ void WiFiJoinApTask::loop()
         ClientConnected,
         EatPostHeader,
         ProcessFormData,
+        StartNetConnection,
+        NetConnected,
         CloseClientConnection,
-        FreeServer,
+        Sleep
     };
 
     static bool     firstTime = true;
     static State    state;
+    static Timer    delayTimer;
+    static char*    lastError;
 
     if (firstTime)
     {
         firstTime = false;
+        lastError = nullptr;
+        matrixTask.PutString("N00");
         state = State::WatchConfig;
     }
 
     switch (state)
     {
+        //* Loop while config is valid; else turn into an access point and allow a one-time SSID/Password config
         case State::WatchConfig:
         {
-            matrixTask.PutString("N00");
             if (_config.IsValid() == false)
             {
                 state = State::FormAP;
+                return;
             }
+
+            state = State::Sleep;
         }
         break;
 
-        static Timer      delayTimer;
         static uint8_t    status = WL_IDLE_STATUS;
 
         case State::FormAP:
@@ -159,9 +131,6 @@ void WiFiJoinApTask::loop()
             matrixTask.PutString("N01");
             WiFi.config(IPAddress(192,48,56,2));
 
-            //_traceOutput.print("Creating access point named: ");
-            //_traceOutput.println("SpaHeaterAP");
-            
             status = WiFi.beginAP("SpaHeaterAP", "123456789");
             if (status != WL_AP_LISTENING) 
             {
@@ -187,7 +156,7 @@ void WiFiJoinApTask::loop()
             // start the web server - port 80
             _server.begin();
 
-            printWiFiStatus(_traceOutput);
+            PrintWiFiStatus(_traceOutput);
 
             matrixTask.PutString("N03");
             state = State::WatchForClient;
@@ -218,7 +187,9 @@ void WiFiJoinApTask::loop()
             _client = _server.available();
             if (_client)
             {
+#if defined(debugOut)                
                 _traceOutput.println("new client");
+#endif
                 _currentLine = "";
                 state = State::ClientConnected;
             }
@@ -236,11 +207,14 @@ void WiFiJoinApTask::loop()
 
             delayMicroseconds(10);
             if (_client.available()) 
-            {                                        // if there's bytes to read from the client,
+            {                                       // if there's bytes to read from the client,
                 char c = _client.read();            // read a byte, then
+#if defined(debugOut)                
                 _traceOutput.write(c);              // print it out to the serial monitor
+#endif      
                 if (c == '\n') 
-                {                                   // if the byte is a newline character
+                {                                   
+                    // EOL...
                     // if the current line is blank, you got two newline characters in a row.
                     // that's the end of the client HTTP request, so send a response:
                     if (_currentLine.length() == 0) 
@@ -252,7 +226,7 @@ void WiFiJoinApTask::loop()
                         _client.println();
 
                         // the content of the HTTP response follows the header:
-                        static char page[] = 
+                        static char pageStart[] = 
                             "<!DOCTYPE html>"
                             "<html>"
                             "<head>"
@@ -261,7 +235,9 @@ void WiFiJoinApTask::loop()
                             "<body>"
                             "    <h1>Wi-Fi Configuration</h1> <!-- Visible Title Block -->"
                             "    <h2>Wi-Fi Setup</h2>"
-                            "    <form action=\"/submit\" method=\"post\">"
+                            "    <form action=\"/submit\" method=\"post\">";
+
+                        static char pageEnd[] =
                             "        <br><br>"
                             "        <label for=\"SSID\">SSID:</label>"
                             "        <input type=\"SSID\" id=\"SSID\" name=\"SSID\">"
@@ -276,16 +252,22 @@ void WiFiJoinApTask::loop()
                             "</body>"
                             "</html>";                          
 
-                        _client.print(page);
-                        //_client.print("<p style=\"font-size:7vw;\">Click <a href=\"/H\">here</a> turn the LED on<br></p>");
-                        //_client.print("<p style=\"font-size:7vw;\">Click <a href=\"/L\">here</a> turn the LED off<br></p>");
+                        _client.print(pageStart);
+                        if (lastError != nullptr)
+                        {
+                            _client.print("<br><br> Failed connection attempt: ");
+                            _client.print(lastError);
+                        }
+                        _client.print(pageEnd);
 
                         // The HTTP response ends with another blank line:
                         _client.println();
 
                         // break out of the while loop:
                         _client.stop();
+#if defined(debugOut)                
                         _traceOutput.println("client disconnected");
+#endif                    
 
                         state = State::WatchForClient;
                         matrixTask.PutString("N03");
@@ -304,6 +286,7 @@ void WiFiJoinApTask::loop()
 
                 if (_currentLine.startsWith("POST /submit"))
                 {
+                    // have posted response
                     state = State::EatPostHeader;
                     _currentLine = "";
                     return;
@@ -327,28 +310,35 @@ void WiFiJoinApTask::loop()
             if (_client.available()) 
             {                                        // if there's bytes to read from the client,
                 char c = _client.read();            // read a byte, then
+#if defined(debugOut)                
                 _traceOutput.write(c);              // print it out to the serial monitor
+#endif
 
             
                 if (c == '\n') 
-                {                                   // if the byte is a newline character
+                {                                   
+                    // EOL...
                     // if the current line is blank, you got two newline characters in a row.
-                    // that's the end of the client HTTP request, so get the submitted form data:
+                    // that's the end of the client HTTP response (POST), so get the submitted form data:
                     if (_currentLine.length() == 0) 
                     {
+#if defined(debugOut)                
                         _traceOutput.println("**BLANK LINE**");
+#endif                        
                         state = State::ProcessFormData;
                         return;
                     }
                     else 
                     { 
-                        // Check for content length header
+                        // Check for content length header and remember that value if found
                         if (_currentLine.startsWith("Content-Length: "))
                         {
                             contentLength = _currentLine.substring(16).toInt();
+#if defined(debugOut)                
                             printf(_traceOutput, "Have content length of: %i\n", contentLength);
+#endif                            
                         }
-                          // if you got a newline, then clear currentLine:
+                          // if you got a newline, then clear currentLine. Keep eating lines until a blank line
                         _currentLine = "";
                     }
                 }
@@ -361,8 +351,13 @@ void WiFiJoinApTask::loop()
         }
         break;
 
+        static String savedSSID;
+        static String savedNetPw;
+        static String savedAdminPw;
+
         case State::ProcessFormData:
         {
+            // contentLength has the expected number of charcters on the POSTed response line - next incoming
             matrixTask.PutString("N09");
             if (!_client.connected())
             {
@@ -372,46 +367,100 @@ void WiFiJoinApTask::loop()
 
             if (contentLength == 0)
             {
-                String  netName;
-                String  netPw;
-                String  adminPw;
-
-                parsePostData(_currentLine, netName, netPw, adminPw);
+                // Have the full payload in _currentLine
+                ParsePostData(_currentLine, savedSSID, savedNetPw, savedAdminPw);
                 printf(_traceOutput, "\nPosted Config data: SSID: '%s'; password: '%s'; admin pw: '%s'\n",
-                      netName.c_str(), netPw.c_str(), adminPw.c_str());
+                      savedSSID.c_str(), 
+                      savedNetPw.c_str(), 
+                      savedAdminPw.c_str());
 
-
-                // We have our config data and are ready to write valid config 
-                //_config.GetRecord()
-
-                state = State::CloseClientConnection;
+                // We have our config data and are ready to write a valid config but first prove we can connect 
+                // to the configured network
+                status = WL_IDLE_STATUS;
+                state = State::StartNetConnection;
                 return;
             }
 
+            // accumlate _currentLine (posted response)
             delayMicroseconds(10);
             if (_client.available()) 
             {                                        // if there's bytes to read from the client,
                 char c = _client.read();            // read a byte, then
+#if defined(debugOut)                
                 _traceOutput.write(c);              // print it out to the serial monitor
+#endif
                 _currentLine += c;
                 contentLength--;
             }
         }
         break;
 
-        case State::CloseClientConnection:
+        case State::StartNetConnection:
         {
-            matrixTask.PutString("N10");
-            state = State::WatchForClient;
+            // Test that the supplied network is available and can be connected to given the supplied info
+            matrixTask.PutString("N11");
+            printf(_traceOutput, "Attempting to connect to: '%s'\n", savedSSID.c_str());
+            status = WiFi.begin(savedSSID.c_str(), savedNetPw.c_str());
+            if (status == WL_CONNECTED)
+            {
+                state = State::NetConnected;
+                return;
+            }
+
+            printf(_traceOutput, "Attempt to connect to: '%s' failed! - try again\n", savedSSID.c_str());
+            lastError = "*** WiFi.begin() failed ***";
             _client.stop();
-            _traceOutput.println("client disconnected");
+            _server.end();
+            state = State::FormAP;        // cause SM to start over if can't attach to net
         }
         break;
 
-        case State::FreeServer:
+        case State::NetConnected:
         {
+            // Supplied WiFi config info proved to work - store the config and restart SM at first state
+            matrixTask.PutString("N13");
+            printf(_traceOutput, "Connected to '%s'\n", savedSSID.c_str());
+
+            // If is left up to other components to use the validated wifi config info - detach from the network
+            _client.stop();
             _server.end();
-            state = State::WatchConfig;
+
+            // Write our config
+            memset(&_config.GetRecord(), 0, sizeof(Config));
+            _config.GetRecord()._version = Config::CurrentVersion;
+            strcpy(_config.GetRecord()._ssid, savedSSID.c_str());
+            strcpy(_config.GetRecord()._networkPassword, savedNetPw.c_str());
+            strcpy(_config.GetRecord()._adminPassword, savedAdminPw.c_str());
+
+            _config.Write();
+            $Assert(_config.IsValid());
+
+            // Free up some heap
+            savedSSID = "";
+            savedNetPw = "";
+            savedAdminPw = "";
+            _currentLine = "";
+
+            state = State::Sleep;       // Go to final state
+        }
+        break;
+
+        case State::CloseClientConnection:
+        {
+            matrixTask.PutString("N14");
+            _client.stop();
+            _traceOutput.println("client disconnected");
+            state = State::WatchForClient;
+        }
+        break;
+
+        case State::Sleep:
+        {
+            if (!_isInSleepState)
+            {
+                _isInSleepState = true;
+                matrixTask.PutString("");
+            }
         }
         break;
 
@@ -421,5 +470,44 @@ void WiFiJoinApTask::loop()
         }
         break;
     }
+}
+
+void WiFiJoinApTask::PrintWiFiStatus(Stream& ToStream) 
+{
+    // print the SSID of the network you're attached to:
+    ToStream.print("SSID: ");
+    ToStream.println(WiFi.SSID());
+
+    // print your WiFi shield's IP address:
+    IPAddress ip = WiFi.localIP();
+    ToStream.print("IP Address: ");
+    ToStream.println(ip);
+
+    // print where to go in a browser:
+    ToStream.print("To see this page in action, open a browser to http://");
+    ToStream.println(ip);
+}
+
+// Helper function to extract value for a given key
+String WiFiJoinApTask::GetValueByKey(String& Data, String Key) 
+{
+    String value = "";
+    int startPos = Data.indexOf(Key + "=");
+    if (startPos != -1) {
+        int endPos = Data.indexOf('&', startPos);
+        if (endPos == -1) {
+            endPos = Data.length();
+        }
+        value = Data.substring(startPos + Key.length() + 1, endPos);
+    }
+    return value;
+}
+
+// Function to parse the POST data
+void WiFiJoinApTask::ParsePostData(String& PostData, String& Network, String& WifiPassword, String& TelnetAdminPassword) 
+{
+    Network = GetValueByKey(PostData, "SSID");
+    WifiPassword = GetValueByKey(PostData, "wifiPassword");
+    TelnetAdminPassword = GetValueByKey(PostData, "telnetAdminPassword");
 }
 
