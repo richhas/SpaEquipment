@@ -7,12 +7,14 @@
 
 // #define debugOut
 
-WiFiJoinApTask::WiFiJoinApTask(Stream& TraceOutput)
+WiFiJoinApTask::WiFiJoinApTask(Stream& TraceOutput, const char* ApNetName, const char* ApNetPassword)
     :   _traceOutput(TraceOutput),
         _config(),
         _server(80),
         _client(-1),
-        _isInSleepState(false)
+        _isInSleepState(false),
+        _apNetName(ApNetName),
+        _apNetPassword(ApNetPassword)
 {
 }
 
@@ -45,6 +47,16 @@ void WiFiJoinApTask::DumpConfig(Stream& ToStream)
     Config&   config = _config.GetRecord();
     printf(ToStream, "Network Config: SSID: '%s'; Password: '%s'; Admin Password: '%s'", 
                      config._ssid, config._networkPassword, config._adminPassword);
+}
+
+void WiFiJoinApTask::SetConfig(const char* SSID, const char* NetPassword, const char* AdminPassword)
+{
+    strcpy(_config.GetRecord()._ssid, SSID);
+    strcpy(_config.GetRecord()._networkPassword, NetPassword);
+    strcpy(_config.GetRecord()._adminPassword, AdminPassword);
+
+    _config.Write();
+    $Assert(_config.IsValid());
 }
 
 void WiFiJoinApTask::setup()
@@ -131,7 +143,7 @@ void WiFiJoinApTask::loop()
             matrixTask.PutString("N01");
             WiFi.config(IPAddress(192,48,56,2));
 
-            status = WiFi.beginAP("SpaHeaterAP", "123456789");
+            status = WiFi.beginAP(_apNetName.c_str(), _apNetPassword.c_str());
             if (status != WL_AP_LISTENING) 
             {
                 printf(_traceOutput, "Creating access point failed: %i\n\r", status);

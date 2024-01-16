@@ -5,112 +5,12 @@
 
 // WIFI Network enumeration
 
-void printEncryptionType(int thisType) 
-{
-    // read the encryption type and print out the name:
-    switch (thisType) 
-    {
-        case ENC_TYPE_WEP:
-            Serial.print("WEP");
-            break;
-        case ENC_TYPE_WPA:
-            Serial.print("WPA");
-            break;
-        case ENC_TYPE_WPA2:
-            Serial.print("WPA2");
-            break;
-        case ENC_TYPE_WPA3:
-            Serial.print("WPA3");
-            break;  
-        case ENC_TYPE_NONE:
-            Serial.print("None");
-            break;
-        case ENC_TYPE_AUTO:
-            Serial.print("Auto");
-            break;
-        case ENC_TYPE_UNKNOWN:
-        default:
-          Serial.print("Unknown");
-          break;
-    }
-}
-
-void print2Digits(byte thisByte) 
-{
-    if (thisByte < 0xF) 
-    {
-        Serial.print("0");
-    }
-    Serial.print(thisByte, HEX);
-}
-
-void printMacAddress(byte mac[]) 
-{
-    for (int i = 5; i >= 0; i--) 
-    {
-        if (mac[i] < 16) 
-        {
-            Serial.print("0");
-        }
-            Serial.print(mac[i], HEX);
-        if (i > 0) 
-        {
-            Serial.print(":");
-        }
-    }
-    Serial.println();
-}
-
-void listNetworks() 
-{
-    // scan for nearby networks:
-    Serial.println("** Scan Networks **");
-    int numSsid = WiFi.scanNetworks();
-    if (numSsid == -1)
-    {
-        Serial.println("Couldn't get a WiFi connection");
-        $FailFast();
-    }
-
-    // print the list of networks seen:
-    Serial.print("number of available networks: ");
-    Serial.println(numSsid);
-
-    // print the network number and name for each network found:
-    for (int thisNet = 0; thisNet < numSsid; thisNet++) 
-    {
-        Serial.print(thisNet + 1);
-        Serial.print(") ");
-        Serial.print("Signal: ");
-        Serial.print(WiFi.RSSI(thisNet));
-        Serial.print(" dBm");
-        Serial.print("\tChannel: ");
-        Serial.print(WiFi.channel(thisNet));
-
-        byte bssid[6];
-        Serial.print("\t\tBSSID: ");
-        printMacAddress(WiFi.BSSID(thisNet, bssid));
-        Serial.print("\tEncryption: ");
-        printEncryptionType(WiFi.encryptionType(thisNet));
-        Serial.print("\t\tSSID: ");
-        Serial.println(WiFi.SSID(thisNet));
-        Serial.flush();
-    }
-    Serial.println();
-}
-
 // Command line processors
 CmdLine::Status ClearEEPROMProcessor(Stream& CmdStream, int Argc, char const** Args, void* Context)
 {
     CmdStream.println("Starting EEPROM Erase...");
     wifiJoinApTask.EraseConfig();
     CmdStream.println("EEPROM Erase has completed");
-    return CmdLine::Status::Ok;
-}
-
-CmdLine::Status ListNetsProcessor(Stream& CmdStream, int Argc, char const** Args, void* Context)
-{
-    listNetworks();
     return CmdLine::Status::Ok;
 }
 
@@ -142,12 +42,82 @@ CmdLine::Status DumpProcessor(Stream& CmdStream, int Argc, char const** Args, vo
     return CmdLine::Status::Ok;
 }
 
-CmdLine::ProcessorDesc  consoleTaskCmdProcessors[] =
+CmdLine::Status SetRTCDateTime(Stream &CmdStream, int Argc, char const **Args, void *Context)
 {
+    if (Argc != 3)
+    {
+        CmdStream.println("Missing parameter: usage: YYYY-MM-DD HH:MM:SS");
+        return CmdLine::Status::UnexpectedParameterCount;
+    }
+
+    String    dateTimeStr(Args[1]);
+    dateTimeStr += " ";
+    dateTimeStr += Args[2];
+
+    struct tm timeToSet;
+    memset(&timeToSet, 0, sizeof(struct tm));
+    if (strptime(dateTimeStr.c_str(), "%Y-%m-%d %H:%M:%S", &timeToSet) == NULL) 
+    {
+        CmdStream.println("Failed to parse date and time");
+        return CmdLine::Status::CommandFailed;    
+    }
+
+    RTCTime newTime(timeToSet);
+    if (!RTC.setTime(newTime))
+    {
+        CmdStream.println("RTC.setTime() failed!");
+        return CmdLine::Status::CommandFailed;    
+    }
+
+    RTCTime currentTime;
+    if (!RTC.getTime(currentTime))
+    {
+        CmdStream.println("RTC.getTime() failed!");
+        return CmdLine::Status::CommandFailed;    
+    }
+    printf(CmdStream, "RTC Date and Time have been set. Currently: %s\n", currentTime.toString().c_str());
+
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status ShowRTCDateTime(Stream& CmdStream, int Argc, char const** Args, void* Context)
+{
+    if (Argc > 1)
+    {
+        return CmdLine::Status::TooManyParameters;
+    }
+
+    RTCTime currentTime;
+    if (!RTC.getTime(currentTime))
+    {
+        CmdStream.println("RTC.getTime() failed!");
+        return CmdLine::Status::CommandFailed;    
+    }
+    printf(CmdStream, "Current RTC Date and Time are: %s\n", currentTime.toString().c_str());
+
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status SetWiFiConfigProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    if (Argc != 4)
+    {
+        return CmdLine::Status::UnexpectedParameterCount;
+    }
+
+    wifiJoinApTask.SetConfig(Args[1], Args[2], Args[3]);
+
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::ProcessorDesc consoleTaskCmdProcessors[] =
+{
+    {SetRTCDateTime, "setTime", "Set the RTC date and time. Format: 'YYYY-MM-DD HH:MM:SS'"},
+    {ShowRTCDateTime, "showTime", "Show the current RTC date and time."},
     {ClearEEPROMProcessor, "clearEPROM", "Clear all of the EEPROM"},
-    {ListNetsProcessor, "listNets", "Discover and list all wifi networks"},
     {SetLedDisplayProcessor, "ledDisplay", "Put tring to Led Matrix"},
     {DumpProcessor, "dump", "Dump internal state"},
+    {SetWiFiConfigProcessor, "setWiFi", "Set the WiFi Config. Format: <SSID> <Net Password> <Admin Password>"},
 };
 
 ConsoleTask::ConsoleTask(Stream& Output)

@@ -29,6 +29,10 @@ enum class Status : int16_t
     MessageBodyCRCFailure = -4,
 };
 
+//* Common support functions
+extern int printf(Stream& ToStream, const char* Format, ...);
+
+
 //** CRC Support
 /*
 class CRC
@@ -138,15 +142,52 @@ private:
         uint8_t         _bytes[2 * sizeof(TBlk)];    
     };
 
+private:
+    void Fill()
+    {
+        uint8_t*    next = &_bytes[0];
+        int         toDo = sizeof(*this);
+        int         index = TBaseOfRecord;
+
+        while (toDo > 0)
+        {
+            *next = EEPROM.read(index);
+            next++;
+            index++;
+            toDo--;
+        }
+    }
+
+    void Flush()
+    {
+        uint8_t*    next = &_bytes[0];
+        int         toDo = sizeof(*this);
+        int         index = TBaseOfRecord;
+
+        while (toDo > 0)
+        {
+            EEPROM.write(index, *next);
+            next++;
+            index++;
+            toDo--;
+        }
+    }
+
 public:
     FlashStore()
     {
-        memset(&_bytes[0], 0, sizeof _bytes);
+        memset(&_bytes[0], 0, sizeof(FlashStore::_bytes));
+    }
+
+    void PrintDebug()
+    {
+        ::printf(Serial, "FlashStore::PrintDebug:: Offset: %u; Size: %u\n", TBaseOfRecord, sizeof(FlashStore::_bytes));
     }
 
     void Begin()
     {
-        EEPROM.get(TBaseOfRecord, _bytes);
+        Fill();
+        //EEPROM.get(TBaseOfRecord, *this);
     }
 
     TBlk& GetRecord() { return _record; }
@@ -165,7 +206,6 @@ public:
         return true;
     }
 
-public:
     void Write()
     {
         for (byte ix = 0; ix < sizeof(FlashStore::_onesComp); ix++)
@@ -173,19 +213,22 @@ public:
             _onesComp[ix] = ~(_bytes[ix]);
         }
 
-        EEPROM.put(TBaseOfRecord, _bytes);
+        Flush();
+        //EEPROM.put(TBaseOfRecord, *this);
     }
 
     void Erase()
     {
-        for(int ix = 0; ix < sizeof(*this); ix++)
-        {
-            EEPROM.write(ix + TBaseOfRecord, 0);
-        }
-        EEPROM.get(TBaseOfRecord, _bytes);
+        memset(&_bytes[0], 0, sizeof(FlashStore::_bytes));
+        Flush();
+
+        //for(int ix = 0; ix < sizeof(*this); ix++)
+        //{
+        //    EEPROM.write(ix + TBaseOfRecord, 0);
+        //}
+
+        //EEPROM.get(TBaseOfRecord, *this);
     }
 };
 #pragma pack(pop) 
 
-//* Common support functions
-extern int printf(Stream& ToStream, const char* Format, ...);
