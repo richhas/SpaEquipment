@@ -132,7 +132,7 @@ ConsoleTask::~ConsoleTask()
 
 void ConsoleTask::setup()
 {
-    _output.println("ConsoleTask is Active");
+    logger.Printf(Logger::RecType::Info, "ConsoleTask is Active");
     _cmdLine.begin(_output, &consoleTaskCmdProcessors[0], sizeof(consoleTaskCmdProcessors) / sizeof(CmdLine::ProcessorDesc));
 }
 

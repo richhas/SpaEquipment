@@ -61,22 +61,13 @@ void WiFiJoinApTask::SetConfig(const char* SSID, const char* NetPassword, const 
 
 void WiFiJoinApTask::setup()
 {
-    _traceOutput.print("WiFiJoinApTask is active - ");
     _config.Begin();
-    if (_config.IsValid())
-    {
-        _traceOutput.println("Config is valid");
-    }
-    else
-    {
-        _traceOutput.println("Config is invalid");
-    }
+    logger.Printf(Logger::RecType::Info, "WiFiJoinApTask is active - Config is %s", (_config.IsValid() ? "valid" : "invalid"));
 
     // check for the WiFi module
     if (WiFi.status() == WL_NO_MODULE) 
     {
-        _traceOutput.println("Communication with WiFi module failed!");
-        _traceOutput.flush();
+        logger.Printf(Logger::RecType::Critical, "Communication with WiFi module failed!");
         $FailFast();
     }
 
@@ -84,7 +75,7 @@ void WiFiJoinApTask::setup()
     String fv = WiFi.firmwareVersion();
     if (fv < WIFI_FIRMWARE_LATEST_VERSION) 
     {
-        _traceOutput.println("Please upgrade the firmware");
+        logger.Printf(Logger::RecType::Warning, "Please upgrade the firmware");
     }
 }
 
@@ -146,7 +137,7 @@ void WiFiJoinApTask::loop()
             status = WiFi.beginAP(_apNetName.c_str(), _apNetPassword.c_str());
             if (status != WL_AP_LISTENING) 
             {
-                printf(_traceOutput, "Creating access point failed: %i\n\r", status);
+                logger.Printf(Logger::RecType::Warning, "Creating access point failed: %i\n\r", status);
                 state = State::WatchConfig;
                 return;
             }
@@ -185,13 +176,13 @@ void WiFiJoinApTask::loop()
                 if (status == WL_AP_CONNECTED) 
                 {
                     // a device has connected to the AP
-                    _traceOutput.println("Device connected to AP");
+                    logger.Printf(Logger::RecType::Info, "Device connected to AP");
                     matrixTask.PutString("N04");
                 } 
                 else 
                 {
                     // a device has disconnected from the AP, and we are back in listening mode
-                    _traceOutput.println("Device disconnected from AP");
+                    logger.Printf(Logger::RecType::Info, "Device disconnected from AP");
                     matrixTask.PutString("N05");
                 }
             }
@@ -199,8 +190,8 @@ void WiFiJoinApTask::loop()
             _client = _server.available();
             if (_client)
             {
-#if defined(debugOut)                
-                _traceOutput.println("new client");
+#if defined(debugOut)
+                logger.Printf(Logger::RecType::Info, "new client");
 #endif
                 _currentLine = "";
                 state = State::ClientConnected;
@@ -277,8 +268,8 @@ void WiFiJoinApTask::loop()
 
                         // break out of the while loop:
                         _client.stop();
-#if defined(debugOut)                
-                        _traceOutput.println("client disconnected");
+#if defined(debugOut)
+                        logger.Printf(Logger::RecType::Info, "client disconnected");
 #endif                    
 
                         state = State::WatchForClient;
@@ -334,8 +325,8 @@ void WiFiJoinApTask::loop()
                     // that's the end of the client HTTP response (POST), so get the submitted form data:
                     if (_currentLine.length() == 0) 
                     {
-#if defined(debugOut)                
-                        _traceOutput.println("**BLANK LINE**");
+#if defined(debugOut)
+                        logger.Printf(Logger::RecType::Info, "**BLANK LINE**");
 #endif                        
                         state = State::ProcessFormData;
                         return;
@@ -346,8 +337,8 @@ void WiFiJoinApTask::loop()
                         if (_currentLine.startsWith("Content-Length: "))
                         {
                             contentLength = _currentLine.substring(16).toInt();
-#if defined(debugOut)                
-                            printf(_traceOutput, "Have content length of: %i\n", contentLength);
+#if defined(debugOut)
+                            logger.Printf(Logger::RecType::Info, "Have content length of: %i", contentLength);
 #endif                            
                         }
                           // if you got a newline, then clear currentLine. Keep eating lines until a blank line
@@ -381,10 +372,10 @@ void WiFiJoinApTask::loop()
             {
                 // Have the full payload in _currentLine
                 ParsePostData(_currentLine, savedSSID, savedNetPw, savedAdminPw);
-                printf(_traceOutput, "\nPosted Config data: SSID: '%s'; password: '%s'; admin pw: '%s'\n",
-                      savedSSID.c_str(), 
-                      savedNetPw.c_str(), 
-                      savedAdminPw.c_str());
+                logger.Printf(Logger::RecType::Info, "Posted Config data: SSID: '%s'; password: '%s'; admin pw: '%s'\n",
+                              savedSSID.c_str(),
+                              savedNetPw.c_str(),
+                              savedAdminPw.c_str());
 
                 // We have our config data and are ready to write a valid config but first prove we can connect 
                 // to the configured network
@@ -411,7 +402,7 @@ void WiFiJoinApTask::loop()
         {
             // Test that the supplied network is available and can be connected to given the supplied info
             matrixTask.PutString("N11");
-            printf(_traceOutput, "Attempting to connect to: '%s'\n", savedSSID.c_str());
+            logger.Printf(Logger::RecType::Info, "Attempting to connect to: '%s'", savedSSID.c_str());
             status = WiFi.begin(savedSSID.c_str(), savedNetPw.c_str());
             if (status == WL_CONNECTED)
             {
@@ -419,7 +410,7 @@ void WiFiJoinApTask::loop()
                 return;
             }
 
-            printf(_traceOutput, "Attempt to connect to: '%s' failed! - try again\n", savedSSID.c_str());
+            logger.Printf(Logger::RecType::Info, "Attempt to connect to: '%s' failed! - try again", savedSSID.c_str());
             lastError = "*** WiFi.begin() failed ***";
             _client.stop();
             _server.end();
@@ -431,7 +422,7 @@ void WiFiJoinApTask::loop()
         {
             // Supplied WiFi config info proved to work - store the config and restart SM at first state
             matrixTask.PutString("N13");
-            printf(_traceOutput, "Connected to '%s'\n", savedSSID.c_str());
+            logger.Printf(Logger::RecType::Info, "Connected to '%s'", savedSSID.c_str());
 
             // If is left up to other components to use the validated wifi config info - detach from the network
             _client.stop();
@@ -461,7 +452,7 @@ void WiFiJoinApTask::loop()
         {
             matrixTask.PutString("N14");
             _client.stop();
-            _traceOutput.println("client disconnected");
+            logger.Printf(Logger::RecType::Info, "client disconnected");
             state = State::WatchForClient;
         }
         break;

@@ -18,15 +18,17 @@
 
 
 // Persistant storage partitions (8k max)
-const uint16_t    PS_NetworkConfigBase = 0;
-const uint16_t    PS_BootRecordBase = PS_NetworkConfigBase + 128;
-const uint16_t    PS_TempSensorsConfigBase = PS_BootRecordBase + 32;
-const uint16_t    PS_MQTTBrokerConfigBase = PS_TempSensorsConfigBase + 256;
-const uint16_t    PS_BoilerConfigBase = PS_MQTTBrokerConfigBase + 256;
-const uint16_t    PS_TotalConfigSize = PS_BoilerConfigBase + 256;
+const uint16_t        PS_NetworkConfigBase = 0;
+    const uint16_t    PS_NetworkConfigBlkSize = 256;
+const uint16_t        PS_BootRecordBase = PS_NetworkConfigBase + PS_NetworkConfigBlkSize;
+    const uint16_t    PS_BootRecordBlkSize = 32;
+const uint16_t        PS_TempSensorsConfigBase = PS_BootRecordBase + PS_BootRecordBlkSize;
+const uint16_t        PS_MQTTBrokerConfigBase = PS_TempSensorsConfigBase + 256;
+const uint16_t        PS_BoilerConfigBase = PS_MQTTBrokerConfigBase + 256;
+const uint16_t        PS_TotalConfigSize = PS_BoilerConfigBase + 256;
 
-const uint16_t    PS_TotalDiagStoreSize = (8 * 1024) - PS_TotalConfigSize;
-const uint16_t    PS_DiagStoreBase = PS_TotalDiagStoreSize;
+const uint16_t        PS_TotalDiagStoreSize = (8 * 1024) - PS_TotalConfigSize;
+const uint16_t        PS_DiagStoreBase = PS_TotalDiagStoreSize;
 
 
 //* All Task Types used
@@ -96,7 +98,8 @@ private:
     String              _apNetName;
     String              _apNetPassword;
 
-
+    static_assert(PS_NetworkConfigBlkSize >= sizeof(FlashStore<Config, PS_NetworkConfigBase>));
+               
 public:
     WiFiJoinApTask() = delete;
     WiFiJoinApTask(Stream& TraceOutput, const char* ApNetName, const char* ApNetPassword);
@@ -118,9 +121,38 @@ private:
     static void PrintWiFiStatus(Stream& ToStream);
 };
 
+class Logger
+{
+public:
+    enum class RecType
+    {
+        Start,              // Reserved
+        Info,
+        Warning,
+        Critical,
+    };
+
+    Logger() = delete;
+    Logger(Stream& ToStream);
+    ~Logger();
+
+    void Begin(uint32_t InstanceSeq);
+    int Printf(Logger::RecType Type, const char* Format, ...);
+
+    static const char* ToString(Logger::RecType From);
+
+private:
+    Stream&     _out;
+    uint32_t    _logSeq;
+    uint32_t    _instanceSeq;
+};
+
+
+
 
 // Cross module references
-extern class ConsoleTask      consoleTask;
-extern class LedMatrixTask    matrixTask;
-extern class WiFiJoinApTask   wifiJoinApTask;
+extern class ConsoleTask        consoleTask;
+extern class LedMatrixTask      matrixTask;
+extern class WiFiJoinApTask     wifiJoinApTask;
+extern class Logger             logger;
 

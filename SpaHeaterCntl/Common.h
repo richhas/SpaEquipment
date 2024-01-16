@@ -179,11 +179,6 @@ public:
         memset(&_bytes[0], 0, sizeof(FlashStore::_bytes));
     }
 
-    void PrintDebug()
-    {
-        ::printf(Serial, "FlashStore::PrintDebug:: Offset: %u; Size: %u\n", TBaseOfRecord, sizeof(FlashStore::_bytes));
-    }
-
     void Begin()
     {
         Fill();
