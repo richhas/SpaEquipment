@@ -33,7 +33,7 @@ const uint16_t        PS_DiagStoreBase = PS_TotalDiagStoreSize;
 
 //* All Task Types used
 
-// Admin console that can be redirected to any Stream
+// Admin console Task that can be redirected to any Stream
 class ConsoleTask : public ArduinoTask
 {
 private:
@@ -107,7 +107,7 @@ public:
 
     bool IsCompleted() { return _isInSleepState; }
     bool IsConfigured() { return _config.IsValid(); }
-    void GetNetworkConfig(String& SSID, String& Password);
+    void GetNetworkConfig(const char*& SSID, const char*& Password);
     void EraseConfig();
     void DumpConfig(Stream& ToStream);
     void SetConfig(const char* SSID, const char* NetPassword, const char* AdminPassword);
@@ -121,6 +121,7 @@ private:
     static void PrintWiFiStatus(Stream& ToStream);
 };
 
+// System Logger
 class Logger
 {
 public:
@@ -147,6 +148,16 @@ private:
     uint32_t    _instanceSeq;
 };
 
+// System Instance Record - In persistant storage
+#pragma pack(push, 1)
+struct BootRecord
+{
+    uint32_t        BootCount;
+};
+#pragma pack(pop)
+
+static_assert(PS_BootRecordBlkSize >= sizeof(FlashStore<BootRecord, PS_BootRecordBase>));
+
 
 
 
@@ -155,4 +166,4 @@ extern class ConsoleTask        consoleTask;
 extern class LedMatrixTask      matrixTask;
 extern class WiFiJoinApTask     wifiJoinApTask;
 extern class Logger             logger;
-
+extern class FlashStore<BootRecord, PS_BootRecordBase> bootRecord;

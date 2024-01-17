@@ -23,11 +23,11 @@ WiFiJoinApTask::~WiFiJoinApTask()
     $FailFast(); 
 }
 
-void WiFiJoinApTask::GetNetworkConfig(String& SSID, String& Password)
+void WiFiJoinApTask::GetNetworkConfig(const char *&SSID, const char *&Password)
 {
     $Assert(_config.IsValid());
-    SSID = _config.GetRecord()._ssid;
-    Password = _config.GetRecord()._networkPassword;
+    SSID = &_config.GetRecord()._ssid[0];
+    Password = &_config.GetRecord()._networkPassword[0];
 }
 
 void WiFiJoinApTask::EraseConfig()
