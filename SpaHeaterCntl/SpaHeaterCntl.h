@@ -167,3 +167,4 @@ extern class LedMatrixTask      matrixTask;
 extern class WiFiJoinApTask     wifiJoinApTask;
 extern class Logger             logger;
 extern class FlashStore<BootRecord, PS_BootRecordBase> bootRecord;
+extern class NetworkTask        network;

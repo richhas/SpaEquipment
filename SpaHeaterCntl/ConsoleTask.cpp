@@ -110,6 +110,9 @@ CmdLine::Status SetWiFiConfigProcessor(Stream &CmdStream, int Argc, char const *
     return CmdLine::Status::Ok;
 }
 
+extern CmdLine::Status StartTelnetProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context);
+extern CmdLine::Status ShowTelnetInfoProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context);
+
 CmdLine::ProcessorDesc consoleTaskCmdProcessors[] =
 {
     {SetRTCDateTime, "setTime", "Set the RTC date and time. Format: 'YYYY-MM-DD HH:MM:SS'"},
@@ -118,6 +121,8 @@ CmdLine::ProcessorDesc consoleTaskCmdProcessors[] =
     {SetLedDisplayProcessor, "ledDisplay", "Put tring to Led Matrix"},
     {DumpProcessor, "dump", "Dump internal state"},
     {SetWiFiConfigProcessor, "setWiFi", "Set the WiFi Config. Format: <SSID> <Net Password> <Admin Password>"},
+    {StartTelnetProcessor, "startTelnet", "Start the telnet server"},
+    {ShowTelnetInfoProcessor, "showTelnet", "Show telnet info"},
 };
 
 ConsoleTask::ConsoleTask(Stream& Output)
