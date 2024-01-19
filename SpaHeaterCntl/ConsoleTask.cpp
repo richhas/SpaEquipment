@@ -110,8 +110,19 @@ CmdLine::Status SetWiFiConfigProcessor(Stream &CmdStream, int Argc, char const *
     return CmdLine::Status::Ok;
 }
 
-extern CmdLine::Status StartTelnetProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context);
-extern CmdLine::Status ShowTelnetInfoProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context);
+CmdLine::Status DisconnectWiFiProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    WiFi.disconnect();
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status ShowTelnetInfoProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    printf(CmdStream, "There are %u clients\n", telnetServer->GetNumberOfClients());
+    return CmdLine::Status::Ok;
+}
+
+
 
 CmdLine::ProcessorDesc consoleTaskCmdProcessors[] =
 {
@@ -121,7 +132,7 @@ CmdLine::ProcessorDesc consoleTaskCmdProcessors[] =
     {SetLedDisplayProcessor, "ledDisplay", "Put tring to Led Matrix"},
     {DumpProcessor, "dump", "Dump internal state"},
     {SetWiFiConfigProcessor, "setWiFi", "Set the WiFi Config. Format: <SSID> <Net Password> <Admin Password>"},
-    {StartTelnetProcessor, "startTelnet", "Start the telnet server"},
+    {DisconnectWiFiProcessor, "stopWiFi", "Disconnect WiFi"},
     {ShowTelnetInfoProcessor, "showTelnet", "Show telnet info"},
 };
 
@@ -132,7 +143,7 @@ ConsoleTask::ConsoleTask(Stream& Output)
 
 ConsoleTask::~ConsoleTask() 
 { 
-    $FailFast(); 
+    // $FailFast(); 
 }
 
 void ConsoleTask::setup()
