@@ -26,6 +26,9 @@ CmdLine::Status SetLedDisplayProcessor(Stream& CmdStream, int Argc, char const**
     return CmdLine::Status::Ok;
 }
 
+extern volatile uint16_t          bgCount;
+
+
 CmdLine::Status DumpProcessor(Stream& CmdStream, int Argc, char const** Args, void* Context)
 {
     if (Argc > 2)
@@ -37,6 +40,10 @@ CmdLine::Status DumpProcessor(Stream& CmdStream, int Argc, char const** Args, vo
     {
         wifiJoinApTask.DumpConfig(CmdStream);
         CmdStream.println();
+    }
+    else if (strcmp(Args[1], "bginfo") == 0)
+    {
+        CmdStream.println(bgCount);
     }
 
     return CmdLine::Status::Ok;
@@ -122,18 +129,31 @@ CmdLine::Status ShowTelnetInfoProcessor(Stream &CmdStream, int Argc, char const 
     return CmdLine::Status::Ok;
 }
 
+CmdLine::Status RebootProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    printf(CmdStream, "***rebooting***\n");
+    CmdStream.flush();
+    delay(1000);
+    NVIC_SystemReset();
+    return CmdLine::Status::Ok;
+}
 
+extern CmdLine::Status StartTcpProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context);
+extern CmdLine::Status StopTcpProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context);
 
 CmdLine::ProcessorDesc consoleTaskCmdProcessors[] =
-{
-    {SetRTCDateTime, "setTime", "Set the RTC date and time. Format: 'YYYY-MM-DD HH:MM:SS'"},
-    {ShowRTCDateTime, "showTime", "Show the current RTC date and time."},
-    {ClearEEPROMProcessor, "clearEPROM", "Clear all of the EEPROM"},
-    {SetLedDisplayProcessor, "ledDisplay", "Put tring to Led Matrix"},
-    {DumpProcessor, "dump", "Dump internal state"},
-    {SetWiFiConfigProcessor, "setWiFi", "Set the WiFi Config. Format: <SSID> <Net Password> <Admin Password>"},
-    {DisconnectWiFiProcessor, "stopWiFi", "Disconnect WiFi"},
-    {ShowTelnetInfoProcessor, "showTelnet", "Show telnet info"},
+    {
+        {SetRTCDateTime, "setTime", "Set the RTC date and time. Format: 'YYYY-MM-DD HH:MM:SS'"},
+        {ShowRTCDateTime, "showTime", "Show the current RTC date and time."},
+        {ClearEEPROMProcessor, "clearEPROM", "Clear all of the EEPROM"},
+        {SetLedDisplayProcessor, "ledDisplay", "Put tring to Led Matrix"},
+        {DumpProcessor, "dump", "Dump internal state"},
+        {SetWiFiConfigProcessor, "setWiFi", "Set the WiFi Config. Format: <SSID> <Net Password> <Admin Password>"},
+        {DisconnectWiFiProcessor, "stopWiFi", "Disconnect WiFi"},
+        {ShowTelnetInfoProcessor, "showTelnet", "Show telnet info"},
+        {RebootProcessor, "reboot", "Reboot the R4"},
+        {StartTcpProcessor, "startTCP", "Start TCP Client Test"},
+        {StopTcpProcessor, "stopTCP", "Stop TCP Client Test"},
 };
 
 ConsoleTask::ConsoleTask(Stream& Output)

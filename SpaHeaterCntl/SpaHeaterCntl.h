@@ -166,7 +166,7 @@ class NetworkService;
 class NetworkClient;
 
 //* Main Network Task - maintains WiFi connection and hosts outgoing Client and incoming Services
-class NetworkTask : public ArduinoTask
+class NetworkTask final : public ArduinoTask
 {
 public:
     NetworkTask() {}
@@ -211,10 +211,14 @@ public:
 
         virtual void Begin() = 0;
         virtual void End() = 0;
-        virtual void setup() override = 0;
-        virtual void loop() override = 0;
+        virtual void setup() override final     { OnSetup(); }
+        virtual void loop() override final      { OnLoop(); }
 
         inline WiFiClient& GetClient() { return _client; }
+
+    protected:
+        virtual void OnSetup()  {};
+        virtual void OnLoop()   {};
 
     protected:
         WiFiClient                  _client;
@@ -227,12 +231,14 @@ public:
 
     void Begin(int Port);
     void End();
-    virtual void setup() override;
-    virtual void loop() override;
+    virtual void setup() override final;
+    virtual void loop() override final;
     inline int GetNumberOfClients() { return _registeredClients.size(); }
 
 protected:
     virtual shared_ptr<Client> CreateClient(shared_ptr<NetworkService> Me, WiFiClient ClientToUse) = 0;
+    virtual void OnSetup() {}
+    virtual void OnLoop()  {}
 
 protected:
     WiFiServer      _server;
@@ -252,20 +258,25 @@ private:
     vector<shared_ptr<Client>> _registeredClients;
 };
 
-//* Outgoing client session base class implementation
+//* Outgoing client session base class implementation 
+//      - derived classes must implement the OnConnected/OnDisconnected/OnLoop/OnSetup methods
 class NetworkClient : public ArduinoTask, public std::enable_shared_from_this<NetworkClient>
 {
 public:
     NetworkClient();
     ~NetworkClient();
-    void Begin();
     virtual void setup() override final;
     virtual void loop() override final;
 
+    void Begin();
+    void End();
+
 protected:
+    // Optional overrides for derived classes
     virtual void OnNetConnected() = 0;
     virtual void OnNetDisconnected() = 0;
     virtual void OnLoop() = 0;
+    virtual void OnSetup() = 0;
 
 private:
     enum class State
@@ -275,18 +286,49 @@ private:
         Connected,
     };
 
-    shared_ptr<NetworkTask>     _parent;
     bool                        _firstTime;
     State                       _state;
     Timer                       _delayTimer;
     int                         _status;
 };
 
+//* Outgoing TCP client session - maintains a single connection to a remote server
 class TcpClient : public NetworkClient
 {
 public:
-    TcpClient();
+    TcpClient() = delete;
+    TcpClient(IPAddress ServerIP, int ServerPort);
     ~TcpClient();
+
+protected:
+    virtual void OnNetConnected() override final;
+    virtual void OnNetDisconnected() override final;
+    virtual void OnLoop() override final;
+    virtual void OnSetup() override final;
+
+protected:
+    virtual void OnConnected();
+    virtual void OnDisconnected();
+    virtual void OnDoProcess();
+
+protected:
+    WiFiClient          _client;    
+
+private:
+    IPAddress           _serverIP;
+    int                 _serverPort;
+    bool                _netIsUp;
+
+    enum class State
+    {
+        WaitForNetUp,
+        DelayBeforeConnectAttempt,
+        Connected,
+    };
+
+    bool                _firstTime;
+    State               _state;
+    Timer               _reconnectTimer;
 };
 
 class UdpClient : public NetworkClient
@@ -299,7 +341,7 @@ public:
 
 
 //* Specific TELNET service bound to instances of ConsoleTask per session
-class TelnetServer : public NetworkService
+class TelnetServer final : public NetworkService
 {
 private:
     class Client : public NetworkService::Client
@@ -310,8 +352,10 @@ private:
         ~Client();
         virtual void Begin();
         virtual void End();
-        virtual void setup() override;
-        virtual void loop() override;
+    
+    protected:
+        virtual void OnSetup() override;
+        virtual void OnLoop() override;
 
     private:
         shared_ptr<ConsoleTask> _console;

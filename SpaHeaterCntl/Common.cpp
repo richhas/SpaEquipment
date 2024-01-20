@@ -78,7 +78,7 @@ void __attribute__ ((noinline)) FailFast(char* FileName, int LineNumber)
 //* Common support functions
 int printf(Stream& ToStream, const char* Format, ...)
 {
-    char    buffer[1024];
+    char    buffer[256];
     va_list args;
 
     va_start(args, Format);

@@ -21,7 +21,6 @@ void NetworkTask::loop()
     if (_registeredServices.size() > 0)
     {
         vector<shared_ptr<NetworkService>> services = _registeredServices;
-
         for (shared_ptr<NetworkService>& service : services)
         {
             service->loop();
@@ -60,6 +59,7 @@ void NetworkTask::loop()
     {
         case State::StartWiFiBegin:
         {
+            status = WiFi.status();
             if (status != WL_CONNECTED)
             {
                 logger.Printf(Logger::RecType::Info, "NetworkTask: Attempting to connect to WPA SSID: '%s'", _ssid);
@@ -92,7 +92,7 @@ void NetworkTask::loop()
 
         case State::DelayAfterWiFiBegin:
         {
-            if (delayTimer.IsAlarmed())
+            if (delayTimer.IsAlarmed() || (WiFi.status() == WL_CONNECTED))
             {
                 state = State::StartWiFiBegin;
             }
@@ -102,7 +102,6 @@ void NetworkTask::loop()
         case State::Connected:
         {
             status = WiFi.status();
-
             if (status != WL_CONNECTED)
             {
                 logger.Printf(Logger::RecType::Info, "NetworkTask: Disconnected");
@@ -145,7 +144,41 @@ String NetworkTask::MacToString(uint8_t *Mac)
 void NetworkTask::RegisterService(shared_ptr<NetworkService> ToRegister)
 {
     Serial.println("NetworkTask::RegisterService");
+    ToRegister->setup();
     _registeredServices.push_back(ToRegister);
+}
+
+void NetworkTask::UnregisterService(shared_ptr<NetworkService> ToUnregister)
+{
+    Serial.println("NetworkTask::UnregisterService");
+    for (int ix = 0; ix < _registeredServices.size(); ix++)
+    {
+        if (_registeredServices[ix] == ToUnregister)
+        {
+            _registeredServices.erase(_registeredServices.begin() + ix);
+            return;
+        }
+    }
+}
+
+void NetworkTask::RegisterClient(shared_ptr<NetworkClient> ToRegister)
+{
+    Serial.println("NetworkTask::RegisterClient");
+    ToRegister->setup();
+    _registeredClients.push_back(ToRegister);
+}
+
+void NetworkTask::UnregisterClient(shared_ptr<NetworkClient> ToUnregister)
+{
+    Serial.println("NetworkTask::UnregisterClient");
+    for (int ix = 0; ix < _registeredClients.size(); ix++)
+    {
+        if (_registeredClients[ix] == ToUnregister)
+        {
+            _registeredClients.erase(_registeredClients.begin() + ix);
+            return;
+        }
+    }
 }
 
 
@@ -170,10 +203,13 @@ void NetworkService::Begin(int Port)
 void NetworkService::setup()
 {
     _firstTime = true;
+    OnSetup();                   // Derived class can do what it wants
 }
 
 void NetworkService::loop()
 {
+    OnLoop();                    // Derived class can do what it wants
+
     class DebugWiFiClient : public WiFiClient
     {
     public:
@@ -292,7 +328,8 @@ NetworkService::Client::~Client()
 {
 }
 
-//* Outgoing client base implementation
+
+//* NetworkClient base class implementation
 NetworkClient::NetworkClient()
     :   _firstTime(false)
 {
@@ -305,14 +342,23 @@ NetworkClient::~NetworkClient()
 void NetworkClient::Begin()
 {
     Serial.println("NetworkClient::Begin");
-    $Assert(_firstTime); // forces setup() to be called first
     network.RegisterClient(shared_from_this());
+    $Assert(_firstTime); // forces setup() to be called first
+}
+
+void NetworkClient::End()
+{
+    Serial.println("NetworkClient::End");
+    network.UnregisterClient(shared_from_this());
+    OnNetDisconnected();            // Derived class can do when client is logically disconnected
+    _firstTime = false;
 }
 
 void NetworkClient::setup()
 {
     $Assert(_firstTime == false);
     _firstTime = true;
+    OnSetup();                   // Derived class can do what it wants
 }
 
 void NetworkClient::loop()
@@ -367,6 +413,124 @@ void NetworkClient::loop()
     }
 }
 
+//* TcpClient implementation
+TcpClient::TcpClient(IPAddress ServerIP, int ServerPort)
+    :   _serverIP(ServerIP),
+        _serverPort(ServerPort),
+        _netIsUp(false)
+{
+}
+
+TcpClient::~TcpClient()
+{
+}
+
+void TcpClient::OnNetConnected()
+{
+    logger.Printf(Logger::RecType::Info, "TcpClient: Network Is Up");
+    _netIsUp = true;
+}
+
+void TcpClient::OnNetDisconnected()
+{
+    logger.Printf(Logger::RecType::Info, "TcpClient: Network Is Down or instance ending");
+    _client.stop();
+    _netIsUp = false;
+}
+
+void TcpClient::OnConnected()
+{
+    logger.Printf(Logger::RecType::Info, "TcpClient: Session Established");
+}
+
+void TcpClient::OnDisconnected()
+{
+    logger.Printf(Logger::RecType::Info, "TcpClient: Session Down");
+}
+
+void TcpClient::OnDoProcess()
+{
+    
+}
+
+void TcpClient::OnSetup()
+{
+    _firstTime = true;
+}
+
+void TcpClient::OnLoop()
+{
+    if (_firstTime)
+    {
+        _firstTime = false;
+        _state = State::WaitForNetUp;
+    }
+
+    switch (_state)
+    {
+        case State::WaitForNetUp:
+        {
+            if (_netIsUp)
+            {
+                logger.Printf(Logger::RecType::Info, "TcpClient: Attempting to connect to server %s:%d", _serverIP.toString().c_str(), _serverPort);
+                if (_client.connect(_serverIP, _serverPort))
+                {
+                    logger.Printf(Logger::RecType::Info, "TcpClient: Connected to server %s:%d", _serverIP.toString().c_str(), _serverPort);
+                    _state = State::Connected;
+                    OnConnected();
+                    return;
+                }
+                else
+                {
+                    logger.Printf(Logger::RecType::Info, "TcpClient: Failed to connect to server %s:%d", _serverIP.toString().c_str(), _serverPort);
+                    _client.stop();
+                    _reconnectTimer.SetAlarm(2000);
+                    _state = State::DelayBeforeConnectAttempt;
+                    return;
+                }
+            }
+        }
+        break;
+
+        case State::DelayBeforeConnectAttempt:
+        {
+            if (_reconnectTimer.IsAlarmed())
+            {
+                _state = State::WaitForNetUp;
+            }
+        }
+
+        case State::Connected:
+        {
+            if (!_client.connected() || !_netIsUp)
+            {
+                _client.stop();
+                _state = State::WaitForNetUp;
+                OnDisconnected();
+                return;
+            }
+
+            OnDoProcess();
+        }
+        break;
+
+        default:
+            $FailFast();
+    }
+}
+
+
+
+
+//* UDP Client implementation
+UdpClient::UdpClient()
+{
+}
+
+UdpClient::~UdpClient()
+{
+}
+
 
 
 //* TELNET Admin console implementation
@@ -408,11 +572,11 @@ void TelnetServer::Client::End()
 {
 }
 
-void TelnetServer::Client::setup()
+void TelnetServer::Client::OnSetup()
 {
 }
 
-void TelnetServer::Client::loop()
+void TelnetServer::Client::OnLoop()
 {
     _console->loop();
 }
