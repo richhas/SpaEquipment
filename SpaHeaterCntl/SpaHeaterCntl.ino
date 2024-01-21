@@ -12,6 +12,9 @@ LedMatrixTask   matrixTask(Serial, 50);
 WiFiJoinApTask  wifiJoinApTask(Serial, "SpaHeaterAP", "123456789");
 Logger          logger(Serial);
 FlashStore<BootRecord, PS_BootRecordBase> bootRecord;
+    static_assert(PS_BootRecordBlkSize >= sizeof(FlashStore<BootRecord, PS_BootRecordBase>));
+FlashStore<TempSensosConfig, PS_TempSensorsConfigBase> tempSensorsConfig;
+    static_assert(PS_TempSensorsConfigBlkSize >= sizeof(FlashStore<TempSensosConfig, PS_TempSensorsConfigBase>));
 NetworkTask     network;
 shared_ptr<TelnetServer> telnetServer;
 
@@ -39,9 +42,7 @@ shared_ptr<TelnetServer> telnetServer;
 //               state machine via loop()
 
 
-// TODO: Add NetworkClient imp
-
-
+//*******************************MQTT Workbench******************************************************
 WiFiClient wifiClient;
 MqttClient mqttClient(wifiClient);
 const char topic[]  = "arduino/simple";
@@ -69,7 +70,7 @@ void tryMQTT()
 
 void StartTelnet()
 {
-    logger.Printf(Logger::RecType::Info, "TELNET (Admin cobsole) starting");
+    logger.Printf(Logger::RecType::Info, "TELNET (Admin console) starting");
     telnetServer = make_shared<TelnetServer>();
     $Assert(telnetServer != nullptr);
     telnetServer->setup();
@@ -78,69 +79,166 @@ void StartTelnet()
 
 shared_ptr<TcpClient> testTcpClient;
 
-void MainThreadEntry(void *pvParameters);
 
-volatile uint16_t          bgCount = 0;
+//*******************************BoilerControllerTask Workbench******************************************************
+#include <DS18B20.h>
 
-void BackgroundThreadEntry(void *pvParameters)
+//*** Boiler Controller
+class BoilerControllerTask final : public ArduinoTask
 {
-    Serial.println("*** Background Thread Active ***");
+public:
+    BoilerControllerTask();
+    ~BoilerControllerTask();
+
+    virtual void setup() override final;
+    virtual void loop() override final;
+    inline const vector<uint64_t>& GetTempSensors() const
+    {
+        return _sensors;
+    }
+    static void BoilerControllerThreadEntry(void *pvParameters);
+
+private:
+    static const uint8_t    _heaterControlPin = 13;
+    static const uint8_t    _oneWireBusPin = 2;
+    DS18B20                 _ds;
+    vector<uint64_t>        _sensors;
+
+    enum State
+    {
+        OnHold,
+        WaitForValidConfig,
+        Active
+    };
+
+    State   _state;
+};
+
+void BoilerControllerTask::BoilerControllerThreadEntry(void *pvParameters)
+{
+    boilerControllerTask.setup();
     while (true)
     {
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        taskYIELD();
-        bgCount++;
+        boilerControllerTask.loop();
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        digitalWrite(_heaterControlPin, !digitalRead(_heaterControlPin));
     }
 }
 
+BoilerControllerTask::BoilerControllerTask()
+    :   _ds(_oneWireBusPin)
+{
+}
 
+BoilerControllerTask::~BoilerControllerTask()
+{
+    $FailFast();
+}
+
+void BoilerControllerTask::setup()
+{
+    logger.Printf(Logger::RecType::Info, "*** BoilerControllerTask Thread Active ***\n");
+
+    pinMode(_heaterControlPin, OUTPUT);  // Make sure the heater is turned off to start with
+    digitalWrite(_heaterControlPin, false);
+
+    _state = OnHold;
+
+    logger.Printf(Logger::RecType::Info, "BoilerControllerTask: Start bus enumeration\n");
+    while (_ds.selectNext())
+    {
+        uint8_t addr[8];
+
+        _ds.getAddress(addr);
+        Serial.print("Address:");
+        for (uint8_t i = 0; i < 8; i++) 
+        {
+            Serial.print(" ");
+            Serial.print(addr[i]);
+        }
+        Serial.println();
+
+        _sensors.push_back(*((uint64_t*)(&addr[0])));
+    }
+    logger.Printf(Logger::RecType::Info, "BoilerControllerTask: Start bus enumeration - COMPLETE\n");
+}
+
+CmdLine::Status ShowTempSensorsProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    auto const sensors = boilerControllerTask.GetTempSensors();
+
+    for (auto const& sensor : sensors)
+    {
+        for (uint8_t* byte = ((uint8_t*)(&sensor)); byte < ((uint8_t*)(&sensor)) + sizeof(sensor); ++byte)
+        {
+            CmdStream.print(" ");
+            CmdStream.print(*byte);
+        }
+        CmdStream.println();
+    }
+
+    return CmdLine::Status::Ok;
+}
+
+void BoilerControllerTask::loop()
+{
+    switch (_state)
+    {
+        case OnHold:
+            // TODO: Add code for OnHold state
+            break;
+
+        case WaitForValidConfig:
+            // TODO: Add code for WaitForValidConfig state
+            break;
+
+        case Active:
+            // TODO: Add code for Active state
+            break;
+
+        default:
+            // TODO: Add code for default state
+            break;
+    }
+}
+
+//******************************************************************************************
+BoilerControllerTask boilerControllerTask;
 TaskHandle_t mainThread;
 TaskHandle_t backgroundThread;
 
 void setup()
 {
-    matrixTask.setup();
-    matrixTask.PutString("S00");
-
+    //* First thing - re-enable the RTC VBATT power switch so not to reset it if a Reset occurs to the UNO
+    //  past this point
+/*    
+    R_SYSTEM->PRCR = 0xA502 | (R_SYSTEM->PRCR & ~0x02);         // Must write enable VBTCR1
+    R_SYSTEM->VBTCR1 = R_SYSTEM->VBTCR1 & ~0x01;                // Turn off BPWSWSTP
+    R_SYSTEM->PRCR = 0xA500 | (R_SYSTEM->PRCR & ~0x02);         // Write protect VBTCR1
+*/
     Serial.begin(9600);
     delay(1000);
 
-    {
-        auto const status = xTaskCreate
-        (
-            MainThreadEntry,
-            static_cast<const char*>("Loop Thread"),
-            (1024 + 256) / 4,   /* usStackDepth in words */      // allow for a sprintf stack buffer
-            nullptr,   /* pvParameters */
-            1,         /* uxPriority */
-            &mainThread /* pxCreatedTask */
-        );
+    matrixTask.setup();
+    matrixTask.PutString("S00");
 
-        if (status != pdPASS) 
-        {
-            Serial.println("Failed to create 'main' thread");
-            $FailFast();
-        }
+    auto const status = xTaskCreate
+    (
+        MainThreadEntry,
+        static_cast<const char*>("Loop Thread"),
+        (1024 + 256) / 4,   /* usStackDepth in words */      // allow for a sprintf stack buffer
+        nullptr,   /* pvParameters */
+        1,         /* uxPriority */
+        &mainThread /* pxCreatedTask */
+    );
+
+    if (status != pdPASS) 
+    {
+        Serial.println("Failed to create 'main' thread");
+        $FailFast();
     }
 
-    {
-        auto const status = xTaskCreate
-        (
-            BackgroundThreadEntry,
-            static_cast<const char*>("Loop Thread"),
-            (1024 + 256) / 4,   /* usStackDepth in words */      // allow for a sprintf stack buffer
-            nullptr,   /* pvParameters */
-            2,         /* uxPriority */
-            &backgroundThread /* pxCreatedTask */
-        );
-
-        if (status != pdPASS) 
-        {
-            Serial.println("Failed to create 'background' thread");
-            $FailFast();
-        }
-    }
-
+    matrixTask.PutString("S01");
     vTaskStartScheduler();
     $FailFast();
     while (true) {}
@@ -160,7 +258,7 @@ void MainThreadEntry(void *pvParameters)
 
 void FinishStart()
 {
-    matrixTask.PutString("S01");
+    matrixTask.PutString("S02");
     bootRecord.Begin();
     if (!bootRecord.IsValid())
     {
@@ -179,16 +277,35 @@ void FinishStart()
         $Assert(bootRecord.IsValid());
     }
 
-    RTC.begin();
+
+    $Assert(RTC.begin());
     logger.Begin(bootRecord.GetRecord().BootCount);
 
-    matrixTask.PutString("S02");
-    consoleTask.setup();
     matrixTask.PutString("S03");
-    wifiJoinApTask.setup();
+    auto const status = xTaskCreate(
+        BoilerControllerTask::BoilerControllerThreadEntry,
+        static_cast<const char *>("Loop Thread"),
+        (1024 + 256) / 4, /* usStackDepth in words */ // allow for a sprintf stack buffer
+        nullptr,                                      /* pvParameters */
+        2,                                            /* uxPriority */
+        &backgroundThread                             /* pxCreatedTask */
+    );
+
+    if (status != pdPASS)
+    {
+        Serial.println("Failed to create 'background' thread");
+        $FailFast();
+    }
+
     matrixTask.PutString("S04");
-    network.setup();
+    consoleTask.setup();
     matrixTask.PutString("S05");
+
+    matrixTask.PutString("S06");
+    wifiJoinApTask.setup();
+    matrixTask.PutString("S07");
+    network.setup();
+    matrixTask.PutString("S08");
 }
 
 CmdLine::Status StartTcpProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)

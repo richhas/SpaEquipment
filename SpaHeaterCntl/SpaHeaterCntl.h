@@ -25,9 +25,12 @@ const uint16_t        PS_NetworkConfigBase = 0;
 const uint16_t        PS_BootRecordBase = PS_NetworkConfigBase + PS_NetworkConfigBlkSize;
     const uint16_t    PS_BootRecordBlkSize = 32;
 const uint16_t        PS_TempSensorsConfigBase = PS_BootRecordBase + PS_BootRecordBlkSize;
-const uint16_t        PS_MQTTBrokerConfigBase = PS_TempSensorsConfigBase + 256;
-const uint16_t        PS_BoilerConfigBase = PS_MQTTBrokerConfigBase + 256;
-const uint16_t        PS_TotalConfigSize = PS_BoilerConfigBase + 256;
+    const uint16_t    PS_TempSensorsConfigBlkSize = 128;
+const uint16_t        PS_MQTTBrokerConfigBase = PS_TempSensorsConfigBase + PS_TempSensorsConfigBlkSize;
+    const uint16_t    PS_MQTTBrokerConfigBlkSize = 256;
+const uint16_t        PS_BoilerConfigBase = PS_MQTTBrokerConfigBase + PS_MQTTBrokerConfigBlkSize;
+    const uint16_t    PS_BoilerConfigBlkSize = 256;
+const uint16_t        PS_TotalConfigSize = PS_BoilerConfigBase + PS_BoilerConfigBlkSize;
 
 const uint16_t        PS_TotalDiagStoreSize = (8 * 1024) - PS_TotalConfigSize;
 const uint16_t        PS_DiagStoreBase = PS_TotalDiagStoreSize;
@@ -158,7 +161,23 @@ struct BootRecord
 };
 #pragma pack(pop)
 
-static_assert(PS_BootRecordBlkSize >= sizeof(FlashStore<BootRecord, PS_BootRecordBase>));
+//* Temperture Sensor Config Record - In persistant storage
+#pragma pack(push, 1)
+struct TempSensorsConfig
+{
+    static constexpr uint64_t InvalidSensorId = 0xFFFFFFFFFFFFFFFF;
+
+    uint64_t _ambiantTempSensorId;
+    uint64_t _boilerInTempSensorId;
+    uint64_t _boilerOutTempSensorId;
+
+    static bool IsSensorIdValid(uint64_t SensorId)
+    {
+        return (SensorId != InvalidSensorId);
+    }    
+};
+#pragma pack(pop)
+
 
 
 //** Network related definitions
@@ -368,6 +387,7 @@ public:
 };
 
 
+
 //** Cross module references
 extern class ConsoleTask        consoleTask;
 extern class LedMatrixTask      matrixTask;
@@ -376,3 +396,5 @@ extern class Logger             logger;
 extern class FlashStore<BootRecord, PS_BootRecordBase> bootRecord;
 extern class NetworkTask        network;
 extern shared_ptr<TelnetServer> telnetServer;
+extern class FlashStore<TempSensosConfig, PS_TempSensorsConfigBase> tempSensorsConfig;
+extern class BoilerControllerTask boilerControllerTask;

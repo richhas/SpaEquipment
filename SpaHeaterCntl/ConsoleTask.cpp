@@ -26,9 +26,6 @@ CmdLine::Status SetLedDisplayProcessor(Stream& CmdStream, int Argc, char const**
     return CmdLine::Status::Ok;
 }
 
-extern volatile uint16_t          bgCount;
-
-
 CmdLine::Status DumpProcessor(Stream& CmdStream, int Argc, char const** Args, void* Context)
 {
     if (Argc > 2)
@@ -41,11 +38,6 @@ CmdLine::Status DumpProcessor(Stream& CmdStream, int Argc, char const** Args, vo
         wifiJoinApTask.DumpConfig(CmdStream);
         CmdStream.println();
     }
-    else if (strcmp(Args[1], "bginfo") == 0)
-    {
-        CmdStream.println(bgCount);
-    }
-
     return CmdLine::Status::Ok;
 }
 
@@ -138,8 +130,12 @@ CmdLine::Status RebootProcessor(Stream &CmdStream, int Argc, char const **Args, 
     return CmdLine::Status::Ok;
 }
 
+
+
+
 extern CmdLine::Status StartTcpProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context);
 extern CmdLine::Status StopTcpProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context);
+extern CmdLine::Status ShowTempSensorsProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context);
 
 CmdLine::ProcessorDesc consoleTaskCmdProcessors[] =
     {
@@ -154,6 +150,7 @@ CmdLine::ProcessorDesc consoleTaskCmdProcessors[] =
         {RebootProcessor, "reboot", "Reboot the R4"},
         {StartTcpProcessor, "startTCP", "Start TCP Client Test"},
         {StopTcpProcessor, "stopTCP", "Stop TCP Client Test"},
+        {ShowTempSensorsProcessor, "showSensors", "Show the list of attached temperature sensors"},
 };
 
 ConsoleTask::ConsoleTask(Stream& Output)

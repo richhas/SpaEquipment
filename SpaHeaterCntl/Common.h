@@ -182,7 +182,6 @@ public:
     void Begin()
     {
         Fill();
-        //EEPROM.get(TBaseOfRecord, *this);
     }
 
     TBlk& GetRecord() { return _record; }
@@ -209,20 +208,12 @@ public:
         }
 
         Flush();
-        //EEPROM.put(TBaseOfRecord, *this);
     }
 
     void Erase()
     {
         memset(&_bytes[0], 0, sizeof(FlashStore::_bytes));
         Flush();
-
-        //for(int ix = 0; ix < sizeof(*this); ix++)
-        //{
-        //    EEPROM.write(ix + TBaseOfRecord, 0);
-        //}
-
-        //EEPROM.get(TBaseOfRecord, *this);
     }
 };
 #pragma pack(pop) 

@@ -17,6 +17,9 @@ void __attribute__ ((noinline)) FailFast(char* FileName, int LineNumber)
     Serial.print(" in file: '");
     Serial.print(FileName);
     Serial.print("'");
+    Serial.flush();
+
+    noInterrupts();
     while (true) 
     {
         //__BKPT(0xFF);
