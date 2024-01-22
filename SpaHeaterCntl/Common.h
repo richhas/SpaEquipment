@@ -6,6 +6,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <Arduino_FreeRTOS.h>
 #include <memory.h>
 #include <EEPROM.h>
 
@@ -32,6 +33,17 @@ enum class Status : int16_t
 //* Common support functions
 extern int printf(Stream& ToStream, const char* Format, ...);
 
+// Helper for 64-bit formatted *printf output
+#define $PRIX64 "08X%08X"
+#define To$PRIX64(v) ((uint32_t)(v >> 32)), ((uint32_t)v)
+
+//* Critical section support
+class CriticalSection
+{
+public:
+    CriticalSection() { taskENTER_CRITICAL(); }
+    ~CriticalSection() { taskEXIT_CRITICAL(); }
+};
 
 //** CRC Support
 /*

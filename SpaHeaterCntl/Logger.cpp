@@ -8,6 +8,9 @@ Logger::Logger(Stream &ToStream)
       _logSeq(0),
       _instanceSeq(0xFFFFFFFF)
 {
+    _lock = xSemaphoreCreateBinary();
+    $Assert(_lock != nullptr);
+    xSemaphoreGive(_lock);
 }
 
 Logger::~Logger()
@@ -55,6 +58,12 @@ int Logger::Printf(Logger::RecType Type, const char *Format, ...)
     va_list args;
 
     va_start(args, Format);
+
+    while (xSemaphoreTake(_lock, portMAX_DELAY) != pdTRUE)
+    {
+        vTaskDelay(1);
+    }
+
     int size = vsnprintf(&buffer[0], sizeof(buffer), Format, args);
     _out.print(ToString(Type));
     _out.print(":");
@@ -66,6 +75,8 @@ int Logger::Printf(Logger::RecType Type, const char *Format, ...)
     _out.print(":");
     _out.println(&buffer[0]);
     _logSeq++;
+
+    xSemaphoreGive(_lock);
     va_end(args);
 
     return size;

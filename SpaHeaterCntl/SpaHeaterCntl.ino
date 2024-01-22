@@ -13,8 +13,11 @@ WiFiJoinApTask  wifiJoinApTask(Serial, "SpaHeaterAP", "123456789");
 Logger          logger(Serial);
 FlashStore<BootRecord, PS_BootRecordBase> bootRecord;
     static_assert(PS_BootRecordBlkSize >= sizeof(FlashStore<BootRecord, PS_BootRecordBase>));
-FlashStore<TempSensosConfig, PS_TempSensorsConfigBase> tempSensorsConfig;
-    static_assert(PS_TempSensorsConfigBlkSize >= sizeof(FlashStore<TempSensosConfig, PS_TempSensorsConfigBase>));
+FlashStore<TempSensorsConfig, PS_TempSensorsConfigBase> tempSensorsConfig;
+    static_assert(PS_TempSensorsConfigBlkSize >= sizeof(FlashStore<TempSensorsConfig, PS_TempSensorsConfigBase>));
+FlashStore<BoilerConfig, PS_BoilerConfigBase> boilerConfig;
+    static_assert(PS_BoilerConfigBlkSize >= sizeof(FlashStore<BoilerConfig, PS_BoilerConfigBase>));
+
 NetworkTask     network;
 shared_ptr<TelnetServer> telnetServer;
 
@@ -80,128 +83,6 @@ void StartTelnet()
 shared_ptr<TcpClient> testTcpClient;
 
 
-//*******************************BoilerControllerTask Workbench******************************************************
-#include <DS18B20.h>
-
-//*** Boiler Controller
-class BoilerControllerTask final : public ArduinoTask
-{
-public:
-    BoilerControllerTask();
-    ~BoilerControllerTask();
-
-    virtual void setup() override final;
-    virtual void loop() override final;
-    inline const vector<uint64_t>& GetTempSensors() const
-    {
-        return _sensors;
-    }
-    static void BoilerControllerThreadEntry(void *pvParameters);
-
-private:
-    static const uint8_t    _heaterControlPin = 13;
-    static const uint8_t    _oneWireBusPin = 2;
-    DS18B20                 _ds;
-    vector<uint64_t>        _sensors;
-
-    enum State
-    {
-        OnHold,
-        WaitForValidConfig,
-        Active
-    };
-
-    State   _state;
-};
-
-void BoilerControllerTask::BoilerControllerThreadEntry(void *pvParameters)
-{
-    boilerControllerTask.setup();
-    while (true)
-    {
-        boilerControllerTask.loop();
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        digitalWrite(_heaterControlPin, !digitalRead(_heaterControlPin));
-    }
-}
-
-BoilerControllerTask::BoilerControllerTask()
-    :   _ds(_oneWireBusPin)
-{
-}
-
-BoilerControllerTask::~BoilerControllerTask()
-{
-    $FailFast();
-}
-
-void BoilerControllerTask::setup()
-{
-    logger.Printf(Logger::RecType::Info, "*** BoilerControllerTask Thread Active ***\n");
-
-    pinMode(_heaterControlPin, OUTPUT);  // Make sure the heater is turned off to start with
-    digitalWrite(_heaterControlPin, false);
-
-    _state = OnHold;
-
-    logger.Printf(Logger::RecType::Info, "BoilerControllerTask: Start bus enumeration\n");
-    while (_ds.selectNext())
-    {
-        uint8_t addr[8];
-
-        _ds.getAddress(addr);
-        Serial.print("Address:");
-        for (uint8_t i = 0; i < 8; i++) 
-        {
-            Serial.print(" ");
-            Serial.print(addr[i]);
-        }
-        Serial.println();
-
-        _sensors.push_back(*((uint64_t*)(&addr[0])));
-    }
-    logger.Printf(Logger::RecType::Info, "BoilerControllerTask: Start bus enumeration - COMPLETE\n");
-}
-
-CmdLine::Status ShowTempSensorsProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
-{
-    auto const sensors = boilerControllerTask.GetTempSensors();
-
-    for (auto const& sensor : sensors)
-    {
-        for (uint8_t* byte = ((uint8_t*)(&sensor)); byte < ((uint8_t*)(&sensor)) + sizeof(sensor); ++byte)
-        {
-            CmdStream.print(" ");
-            CmdStream.print(*byte);
-        }
-        CmdStream.println();
-    }
-
-    return CmdLine::Status::Ok;
-}
-
-void BoilerControllerTask::loop()
-{
-    switch (_state)
-    {
-        case OnHold:
-            // TODO: Add code for OnHold state
-            break;
-
-        case WaitForValidConfig:
-            // TODO: Add code for WaitForValidConfig state
-            break;
-
-        case Active:
-            // TODO: Add code for Active state
-            break;
-
-        default:
-            // TODO: Add code for default state
-            break;
-    }
-}
-
 //******************************************************************************************
 BoilerControllerTask boilerControllerTask;
 TaskHandle_t mainThread;
@@ -226,10 +107,10 @@ void setup()
     (
         MainThreadEntry,
         static_cast<const char*>("Loop Thread"),
-        (1024 + 256) / 4,   /* usStackDepth in words */      // allow for a sprintf stack buffer
-        nullptr,   /* pvParameters */
-        1,         /* uxPriority */
-        &mainThread /* pxCreatedTask */
+        (1024) / 4,                 /* usStackDepth in words */
+        nullptr,                    /* pvParameters */
+        1,                          /* uxPriority */
+        &mainThread                 /* pxCreatedTask */
     );
 
     if (status != pdPASS) 
@@ -241,7 +122,6 @@ void setup()
     matrixTask.PutString("S01");
     vTaskStartScheduler();
     $FailFast();
-    while (true) {}
 }
 
 void MainThreadEntry(void *pvParameters)
@@ -277,18 +157,34 @@ void FinishStart()
         $Assert(bootRecord.IsValid());
     }
 
-
+    matrixTask.PutString("S03");
     $Assert(RTC.begin());
+
+    matrixTask.PutString("S04");
     logger.Begin(bootRecord.GetRecord().BootCount);
 
-    matrixTask.PutString("S03");
+    matrixTask.PutString("S05");
+    tempSensorsConfig.Begin();
+
+    matrixTask.PutString("S06");
+    boilerConfig.Begin();
+    if (boilerConfig.IsValid() == false)
+    {
+        boilerConfig.GetRecord()._setPoint = 100.0;
+        boilerConfig.GetRecord()._hysteresis = 0.75;
+        boilerConfig.Write();
+        boilerConfig.Begin();
+        $Assert(boilerConfig.IsValid());
+    }
+
+    matrixTask.PutString("S07");
     auto const status = xTaskCreate(
         BoilerControllerTask::BoilerControllerThreadEntry,
         static_cast<const char *>("Loop Thread"),
-        (1024 + 256) / 4, /* usStackDepth in words */ // allow for a sprintf stack buffer
-        nullptr,                                      /* pvParameters */
-        2,                                            /* uxPriority */
-        &backgroundThread                             /* pxCreatedTask */
+    (1024) / 4,                                     /* usStackDepth in words */
+        nullptr,                                    /* pvParameters */
+        2,                                          /* uxPriority */
+        &backgroundThread                           /* pxCreatedTask */
     );
 
     if (status != pdPASS)
@@ -297,15 +193,15 @@ void FinishStart()
         $FailFast();
     }
 
-    matrixTask.PutString("S04");
-    consoleTask.setup();
-    matrixTask.PutString("S05");
-
-    matrixTask.PutString("S06");
-    wifiJoinApTask.setup();
-    matrixTask.PutString("S07");
-    network.setup();
     matrixTask.PutString("S08");
+    consoleTask.setup();
+    matrixTask.PutString("S09");
+
+    matrixTask.PutString("S10");
+    wifiJoinApTask.setup();
+    matrixTask.PutString("S11");
+    network.setup();
+    matrixTask.PutString("S12");
 }
 
 CmdLine::Status StartTcpProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
@@ -328,6 +224,16 @@ bool doMQTT = false;
 
 void loop() 
 {
+    /*
+    static Timer timer(0);
+
+    if (timer.IsAlarmed())
+    {
+        timer.SetAlarm(2000);
+        logger.Printf(Logger::RecType::Info, "loop() (main)");
+    }
+    */
+
     consoleTask.loop();
     matrixTask.loop();
     wifiJoinApTask.loop();

@@ -36,7 +36,9 @@ public:
     ~CmdLine();
     bool begin(Stream& CmdStream, ProcessorDesc* Descs, int NbrOfDescs, char const* ContextStr = "", void* Context = nullptr);
     void end();
-    bool IsReady();
+    bool IsReady();         // returns true if command line was processed and is ready for next command
+    void ShowHelp();
+    
     __inline CmdLine::Status GetLastStatus() { return _lastStatus; }
     __inline void SetContextStr(char const* ContextStr) { _currentContext = ContextStr; }
     __inline void* GetContext() { return _context; }

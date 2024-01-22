@@ -140,6 +140,18 @@ bool CmdLine::IsReady()
     return false;
 }
 
+void CmdLine::ShowHelp()
+{
+    for (CmdLine::ProcessorDesc *pdPtr = _descs; pdPtr < _descs + _nbrOfDescs; pdPtr++)
+    {
+        _stream->print("\tCmd: '");
+        _stream->print(pdPtr->_cmdText);
+        _stream->print("' -- ");
+        _stream->print(pdPtr->_helpText);
+        _stream->print("\n\r");
+    }
+}
+
 void CmdLine::ProcessCommandLine()
 {
   //Serial.print("AT: ProcessCommandLine: '");
@@ -206,14 +218,7 @@ void CmdLine::ProcessCommandLine()
     if ((strcmp("?", params[0]) == 0) || (strcmp("help", params[0]) ==0))
     {
         _stream->print("\n\rHelp:\n\r");
-        for (CmdLine::ProcessorDesc* pdPtr = _descs; pdPtr < _descs + _nbrOfDescs; pdPtr++)
-        {
-            _stream->print("\tCmd: '");
-            _stream->print(pdPtr->_cmdText);
-            _stream->print("' -- ");
-            _stream->print(pdPtr->_helpText);
-            _stream->print("\n\r");
-        }
+        ShowHelp();
         _lastStatus = CmdLine::Ok;
         return;
     }

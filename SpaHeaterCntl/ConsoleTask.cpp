@@ -3,8 +3,6 @@
 
 #include "SpaHeaterCntl.h"
 
-// WIFI Network enumeration
-
 // Command line processors
 CmdLine::Status ClearEEPROMProcessor(Stream& CmdStream, int Argc, char const** Args, void* Context)
 {
@@ -130,47 +128,352 @@ CmdLine::Status RebootProcessor(Stream &CmdStream, int Argc, char const **Args, 
     return CmdLine::Status::Ok;
 }
 
-
-
+CmdLine::Status ConfigBoilerProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    ((ConsoleTask *)Context)->StartBoilerConfig();
+}
 
 extern CmdLine::Status StartTcpProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context);
 extern CmdLine::Status StopTcpProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context);
 extern CmdLine::Status ShowTempSensorsProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context);
 
 CmdLine::ProcessorDesc consoleTaskCmdProcessors[] =
-    {
-        {SetRTCDateTime, "setTime", "Set the RTC date and time. Format: 'YYYY-MM-DD HH:MM:SS'"},
-        {ShowRTCDateTime, "showTime", "Show the current RTC date and time."},
-        {ClearEEPROMProcessor, "clearEPROM", "Clear all of the EEPROM"},
-        {SetLedDisplayProcessor, "ledDisplay", "Put tring to Led Matrix"},
-        {DumpProcessor, "dump", "Dump internal state"},
-        {SetWiFiConfigProcessor, "setWiFi", "Set the WiFi Config. Format: <SSID> <Net Password> <Admin Password>"},
-        {DisconnectWiFiProcessor, "stopWiFi", "Disconnect WiFi"},
-        {ShowTelnetInfoProcessor, "showTelnet", "Show telnet info"},
-        {RebootProcessor, "reboot", "Reboot the R4"},
-        {StartTcpProcessor, "startTCP", "Start TCP Client Test"},
-        {StopTcpProcessor, "stopTCP", "Stop TCP Client Test"},
-        {ShowTempSensorsProcessor, "showSensors", "Show the list of attached temperature sensors"},
+{
+    {SetRTCDateTime, "setTime", "Set the RTC date and time. Format: 'YYYY-MM-DD HH:MM:SS'"},
+    {ShowRTCDateTime, "showTime", "Show the current RTC date and time."},
+    {ClearEEPROMProcessor, "clearEPROM", "Clear all of the EEPROM"},
+    {SetLedDisplayProcessor, "ledDisplay", "Put tring to Led Matrix"},
+    {DumpProcessor, "dump", "Dump internal state"},
+    {SetWiFiConfigProcessor, "setWiFi", "Set the WiFi Config. Format: <SSID> <Net Password> <Admin Password>"},
+    {DisconnectWiFiProcessor, "stopWiFi", "Disconnect WiFi"},
+    {ShowTelnetInfoProcessor, "showTelnet", "Show telnet info"},
+    {RebootProcessor, "reboot", "Reboot the R4"},
+    {StartTcpProcessor, "startTCP", "Start TCP Client Test"},
+    {StopTcpProcessor, "stopTCP", "Stop TCP Client Test"},
+    {ShowTempSensorsProcessor, "showSensors", "Show the list of attached temperature sensors"},
+    {ConfigBoilerProcessor, "configBoiler", "Start the config of the Boiler"},
 };
 
-ConsoleTask::ConsoleTask(Stream& Output)
-    :   _output(Output)
+CmdLine::Status ExitBoilerConfigProcessor(Stream &CmdStream, int Argc, char const** Args, void* Context)
+{
+    ((ConsoleTask*)Context)->EndBoilerConfig();
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status ShowBoilerConfigProcessor(Stream &CmdStream, int Argc, char const** Args, void* Context)
+{
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status AssignTempConfigProcessor(Stream &CmdStream, int Argc, char const** Args, void* Context)
+{
+    if (Argc != 3)
+    {
+        return CmdLine::Status::UnexpectedParameterCount;
+    }
+
+    int sensorNumber = atoi(Args[1]);
+    if ((sensorNumber < 1) || (sensorNumber > boilerControllerTask.GetTempSensors().size()))
+    {
+        CmdStream.println("Invalid sensor number");
+        return CmdLine::Status::CommandFailed;
+    }
+
+    auto const sensorId = boilerControllerTask.GetTempSensors()[sensorNumber - 1];
+    
+    if (strcmp(Args[2], "ambiant") == 0)
+    {
+        if ((sensorId == tempSensorsConfig.GetRecord()._boilerInTempSensorId) || 
+            (sensorId == tempSensorsConfig.GetRecord()._boilerOutTempSensorId))
+        {
+            CmdStream.println("Sensor is already assigned to boilerIn or boilerOut");
+            return CmdLine::Status::CommandFailed;
+        }
+
+        tempSensorsConfig.GetRecord()._ambiantTempSensorId = sensorId;
+        tempSensorsConfig.Write();
+    }
+    else if (strcmp(Args[2], "boilerIn") == 0)
+    {
+        if ((sensorId == tempSensorsConfig.GetRecord()._ambiantTempSensorId) || 
+            (sensorId == tempSensorsConfig.GetRecord()._boilerOutTempSensorId))
+        {
+            CmdStream.println("Sensor is already assigned to ambiant or boilerOut");
+            return CmdLine::Status::CommandFailed;
+        }
+
+        tempSensorsConfig.GetRecord()._boilerInTempSensorId = sensorId;
+        tempSensorsConfig.Write();
+    }
+    else if (strcmp(Args[2], "boilerOut") == 0)
+    {
+        if ((sensorId == tempSensorsConfig.GetRecord()._ambiantTempSensorId) || 
+            (sensorId == tempSensorsConfig.GetRecord()._boilerInTempSensorId))
+        {
+            CmdStream.println("Sensor is already assigned to ambiant or boilerIn");
+            return CmdLine::Status::CommandFailed;
+        }
+
+        tempSensorsConfig.GetRecord()._boilerOutTempSensorId = sensorId;
+        tempSensorsConfig.Write();
+    }
+    else
+    {
+        CmdStream.println("Invalid sensor function");
+        return CmdLine::Status::CommandFailed;
+    }
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status EraseTempConfigProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    tempSensorsConfig.Erase();
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status SetBoilerTargetTempInFConfigProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    if (Argc != 2)
+    {
+        return CmdLine::Status::UnexpectedParameterCount;
+    }
+
+    float temp = atof(Args[1]);
+    if ((temp < 0.0) || (temp > 212.0))
+    {
+        CmdStream.println("Invalid temperature");
+        return CmdLine::Status::CommandFailed;
+    }
+
+    boilerConfig.GetRecord()._setPoint = $FtoC(temp);
+    boilerConfig.Write();
+
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status SetBoilerTargetTempInCConfigProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    if (Argc != 2)
+    {
+        return CmdLine::Status::UnexpectedParameterCount;
+    }
+
+    float temp = atof(Args[1]);
+    if ((temp < 0.0) || (temp > 100.0))
+    {
+        CmdStream.println("Invalid temperature");
+        return CmdLine::Status::CommandFailed;
+    }
+
+    boilerConfig.GetRecord()._setPoint = temp;
+    boilerConfig.Write();
+
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status SetBoilerHysteresisConfigProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    if (Argc != 2)
+    {
+        return CmdLine::Status::UnexpectedParameterCount;
+    }
+
+    float hysterisis = atof(Args[1]);
+    if ((hysterisis < 0) || (hysterisis > 100))
+    {
+        CmdStream.println("Invalid hysteresis");
+        return CmdLine::Status::CommandFailed;
+    }
+
+    boilerConfig.GetRecord()._hysteresis = hysterisis;
+    boilerConfig.Write();
+
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::ProcessorDesc configBoilerCmdProcessors[] =
+    {
+        {ExitBoilerConfigProcessor, "exit", "Exit the config of the boiler"},
+        {ShowBoilerConfigProcessor, "show", "Show current boiler config and detected sensor list"},
+        {AssignTempConfigProcessor, "assign", "Assign sensor to function. Format: assign <sensor number> 'ambiant'|'boilerIn'|'boilerOut'"},
+        {EraseTempConfigProcessor, "erase", "Erase the boiler's temperture sensor assignment config"},
+        {SetBoilerTargetTempInFConfigProcessor, "setTempF", "Set the boiler's target temperature in degrees F. Format: setTempF <temp>"},
+        {SetBoilerTargetTempInCConfigProcessor, "setTempC", "Set the boiler's target temperature in degrees C. Format: setTempC <temp>"},
+        {SetBoilerHysteresisConfigProcessor, "setHysteresis", "Set the boiler's hysteresis. Format: setHysteresis <hysteresis>"},
+};
+
+ConsoleTask::ConsoleTask(Stream &StreamToUse)
+    :   _stream(StreamToUse),
+        _state(State::EnterMainMenu)
 {  
 }
 
 ConsoleTask::~ConsoleTask() 
 { 
-    // $FailFast(); 
 }
 
 void ConsoleTask::setup()
 {
     logger.Printf(Logger::RecType::Info, "ConsoleTask is Active");
-    _cmdLine.begin(_output, &consoleTaskCmdProcessors[0], sizeof(consoleTaskCmdProcessors) / sizeof(CmdLine::ProcessorDesc));
 }
 
 void ConsoleTask::loop() 
 {
-    _cmdLine.IsReady();
+    switch (_state)
+    {
+        case State::EnterMainMenu:
+        {
+            _cmdLine.begin(
+                _stream,
+                &consoleTaskCmdProcessors[0],
+                sizeof(consoleTaskCmdProcessors) / sizeof(CmdLine::ProcessorDesc),
+                "Main",
+                this);
+
+            _cmdLine.ShowHelp();
+            _stream.println();
+            _stream.println();
+
+            _state = State::MainMenu;
+        }
+        break;
+
+        case State::MainMenu:
+        {
+            if (_cmdLine.IsReady())
+            {
+                //printf(_output, "\rCommand Executed\n");
+            }
+        }
+        break;
+
+        case State::EnterBoilerConfig:
+        {
+            _cmdLine.end();
+            _cmdLine.begin(
+                _stream,
+                &configBoilerCmdProcessors[0],
+                sizeof(configBoilerCmdProcessors) / sizeof(CmdLine::ProcessorDesc),
+                "BoilerConfig",
+                this);
+
+            _cmdLine.ShowHelp();
+            _stream.println();
+            _stream.println();
+            ShowCurrentBoilerConfig();
+
+            _state = State::BoilerConfig;
+        }
+        break;
+
+        case State::BoilerConfig:
+        {
+            if (_cmdLine.IsReady())
+            {
+                if (_state == State::BoilerConfig)
+                {
+                    _stream.println();
+                    _stream.println();
+                    ShowCurrentBoilerConfig();
+                }
+                else
+                {
+                    // Leaving state
+                    _cmdLine.end();
+                }
+            }
+        }
+        break;
+
+        default:
+        {
+            $FailFast();
+        }
+        break;
+    }
 }
 
+void ConsoleTask::StartBoilerConfig()
+{
+    _state = State::EnterBoilerConfig;
+}
+
+void ConsoleTask::EndBoilerConfig()
+{
+    _state = State::EnterMainMenu;
+}
+
+void ConsoleTask::ShowCurrentBoilerConfig()
+{
+    printf(_stream, "Temp Sensors Configured:\n");
+    if (tempSensorsConfig.IsValid())
+    {
+        if (tempSensorsConfig.GetRecord().IsSensorIdValid(tempSensorsConfig.GetRecord()._ambiantTempSensorId))
+        {
+            printf(_stream, "   Ambiant Temp Sensor: %" $PRIX64 "\n", To$PRIX64(tempSensorsConfig.GetRecord()._ambiantTempSensorId));
+        }
+        else
+        {
+            printf(_stream, "   Ambiant Temp Sensor: Not Configured\n");
+        }
+
+        if (tempSensorsConfig.GetRecord().IsSensorIdValid(tempSensorsConfig.GetRecord()._boilerInTempSensorId))
+        {
+            printf(_stream, "   Boiler In Temp Sensor: %" $PRIX64 "\n", To$PRIX64(tempSensorsConfig.GetRecord()._boilerInTempSensorId));
+        }
+        else
+        {
+            printf(_stream, "   Boiler In Temp Sensor: Not Configured\n");
+        }
+
+        if (tempSensorsConfig.GetRecord().IsSensorIdValid(tempSensorsConfig.GetRecord()._boilerOutTempSensorId))
+        {
+            printf(_stream, "   Boiler Out Temp Sensor: %" $PRIX64 "\n", To$PRIX64(tempSensorsConfig.GetRecord()._boilerOutTempSensorId));
+        }
+        else
+        {
+            printf(_stream, "   Boiler Out Temp Sensor: Not Configured\n");
+        }
+
+        if (tempSensorsConfig.GetRecord().IsConfigured())
+        {
+            printf(_stream, "   Fully Configured\n");
+        }
+        else
+        {
+            printf(_stream, "   Not Fully Configured\n");
+        }
+    }
+    else
+    {
+        printf(_stream, "   No Temp Sensors Configured\n");
+    }
+
+    printf(_stream, "Temp Sensors Discovered:\n");
+    auto const sensors = boilerControllerTask.GetTempSensors();
+    int i = 0;
+
+    for (auto const &sensor : sensors)
+    {
+        i++;
+        printf(_stream, "   %d) %" $PRIX64 "  --  ", i, To$PRIX64(sensor));
+        for (uint8_t *byte = ((uint8_t *)(&sensor)); byte < ((uint8_t *)(&sensor)) + sizeof(sensor); ++byte)
+        {
+            printf(_stream, " %d", *byte);
+        }
+        _stream.println();
+    }
+
+    printf(_stream, "Boiler Config:\n");
+
+    float       temp = boilerConfig.GetRecord()._setPoint;
+    float       hysterisis = boilerConfig.GetRecord()._hysteresis;
+    float       lowTemp = temp - hysterisis;
+    float       highTemp = temp + hysterisis;
+
+    printf(_stream, "   Set Point: %3.2fC (%3.2fF)\n", temp, $CtoF(temp));
+    printf(_stream, "   Hysteresis: %2.2f (%3.2f-%3.2fC %3.2f-%3.2fF)\n", hysterisis, lowTemp, highTemp, $CtoF(lowTemp), $CtoF(highTemp));
+
+    _stream.println();
+    _stream.println();
+}

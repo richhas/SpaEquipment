@@ -8,6 +8,8 @@
 #include <Arduino_LED_Matrix.h>
 #include <time.h>
 #include <vector>
+#include <Arduino_FreeRTOS.h>
+
 
 using namespace std;
 
@@ -17,9 +19,11 @@ using namespace std;
 #include "Eventing.h"
 #include <WiFi.h>
 #include <WiFiS3.h>
+#include <DS18B20.h>
 
 
-//* Persistant storage partitions (8k max)
+
+//** Persistant storage partitions (8k max)
 const uint16_t        PS_NetworkConfigBase = 0;
     const uint16_t    PS_NetworkConfigBlkSize = 256;
 const uint16_t        PS_BootRecordBase = PS_NetworkConfigBase + PS_NetworkConfigBlkSize;
@@ -36,22 +40,45 @@ const uint16_t        PS_TotalDiagStoreSize = (8 * 1024) - PS_TotalConfigSize;
 const uint16_t        PS_DiagStoreBase = PS_TotalDiagStoreSize;
 
 
+//** Common helpers
+#define $FtoC(F)     ((((float)F) - 32.0) * 5.0 / 9.0)
+#define $CtoF(C)     ((((float)C) * 9.0 / 5.0) + 32.0)
+
+
+
 //** All Task Types used
 
 //* Admin console Task that can be redirected to any Stream
 class ConsoleTask : public ArduinoTask
 {
-private:
-    Stream&       _output;
-    CmdLine       _cmdLine;
-
 public:
     ConsoleTask() = delete;
-    ConsoleTask(Stream& Output);
+    ConsoleTask(Stream& StreamToUse);
     ~ConsoleTask();
 
     virtual void setup();
     virtual void loop();
+
+    void StartBoilerConfig();
+    void EndBoilerConfig();
+
+private:
+    friend CmdLine::Status ShowBoilerConfigProcessor(Stream&, int, char const**, void*);
+    void ShowCurrentBoilerConfig();
+
+private:
+    Stream&         _stream;
+    CmdLine         _cmdLine;
+
+    enum class State
+    {
+        MainMenu,
+        EnterBoilerConfig,
+        BoilerConfig,
+        EnterMainMenu,
+    };
+
+    State           _state;
 };
 
 //* Task to maintain the UNO WiFi LED display; presenting a text string
@@ -74,6 +101,7 @@ public:
 
     void PutString(char* Text);
 };
+
 
 
 //* Task that implements an AP; allowing a user to select and configure that SSID/Password
@@ -126,6 +154,41 @@ private:
     static void PrintWiFiStatus(Stream& ToStream);
 };
 
+
+
+//* Task that implements the background thread for the boiler controller
+class BoilerControllerTask final : public ArduinoTask
+{
+public:
+    BoilerControllerTask();
+    ~BoilerControllerTask();
+
+    virtual void setup() override final;
+    virtual void loop() override final;
+    inline const vector<uint64_t> &GetTempSensors() const
+    {
+        return _sensors;
+    }
+    static void BoilerControllerThreadEntry(void *pvParameters);
+
+private:
+    static const uint8_t _heaterControlPin = 13;
+    static const uint8_t _oneWireBusPin = 2;
+    DS18B20 _ds;
+    vector<uint64_t> _sensors;
+
+    enum State
+    {
+        OnHold,
+        WaitForValidConfig,
+        Active
+    };
+
+    State _state;
+};
+
+
+
 //* System Logger
 class Logger
 {
@@ -151,6 +214,7 @@ private:
     Stream&     _out;
     uint32_t    _logSeq;
     uint32_t    _instanceSeq;
+    SemaphoreHandle_t _lock;
 };
 
 //* System Instance Record - In persistant storage
@@ -161,11 +225,13 @@ struct BootRecord
 };
 #pragma pack(pop)
 
+
+
 //* Temperture Sensor Config Record - In persistant storage
 #pragma pack(push, 1)
 struct TempSensorsConfig
 {
-    static constexpr uint64_t InvalidSensorId = 0xFFFFFFFFFFFFFFFF;
+    static constexpr uint64_t InvalidSensorId = 0x0000000000000000;
 
     uint64_t _ambiantTempSensorId;
     uint64_t _boilerInTempSensorId;
@@ -174,7 +240,23 @@ struct TempSensorsConfig
     static bool IsSensorIdValid(uint64_t SensorId)
     {
         return (SensorId != InvalidSensorId);
-    }    
+    }
+
+    inline bool IsConfigured()
+    {
+        return (IsSensorIdValid(_ambiantTempSensorId) && IsSensorIdValid(_boilerInTempSensorId) && IsSensorIdValid(_boilerOutTempSensorId));
+    }  
+};
+#pragma pack(pop)
+
+
+
+//* Boiler Config Record - In persistant storage
+#pragma pack(push, 1)
+struct BoilerConfig
+{
+    float       _setPoint;      // Target temperature in C
+    float       _hysteresis;    // Hysteresis in C
 };
 #pragma pack(pop)
 
@@ -396,5 +478,6 @@ extern class Logger             logger;
 extern class FlashStore<BootRecord, PS_BootRecordBase> bootRecord;
 extern class NetworkTask        network;
 extern shared_ptr<TelnetServer> telnetServer;
-extern class FlashStore<TempSensosConfig, PS_TempSensorsConfigBase> tempSensorsConfig;
+extern class FlashStore<TempSensorsConfig, PS_TempSensorsConfigBase> tempSensorsConfig;
 extern class BoilerControllerTask boilerControllerTask;
+extern class FlashStore<BoilerConfig, PS_BoilerConfigBase> boilerConfig;
