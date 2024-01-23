@@ -128,14 +128,35 @@ CmdLine::Status RebootProcessor(Stream &CmdStream, int Argc, char const **Args, 
     return CmdLine::Status::Ok;
 }
 
+CmdLine::Status ShowTempSensorsProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    auto const sensors = boilerControllerTask.GetTempSensors();
+
+    for (auto const &sensor : sensors)
+    {
+        for (uint8_t *byte = ((uint8_t *)(&sensor)); byte < ((uint8_t *)(&sensor)) + sizeof(sensor); ++byte)
+        {
+            CmdStream.print(" ");
+            CmdStream.print(*byte);
+        }
+        CmdStream.println();
+    }
+
+    return CmdLine::Status::Ok;
+}
+
 CmdLine::Status ConfigBoilerProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
 {
     ((ConsoleTask *)Context)->StartBoilerConfig();
 }
 
+CmdLine::Status BoilerProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    ((ConsoleTask *)Context)->StartBoilerControl();
+}
+
 extern CmdLine::Status StartTcpProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context);
 extern CmdLine::Status StopTcpProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context);
-extern CmdLine::Status ShowTempSensorsProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context);
 
 CmdLine::ProcessorDesc consoleTaskCmdProcessors[] =
 {
@@ -152,6 +173,7 @@ CmdLine::ProcessorDesc consoleTaskCmdProcessors[] =
     {StopTcpProcessor, "stopTCP", "Stop TCP Client Test"},
     {ShowTempSensorsProcessor, "showSensors", "Show the list of attached temperature sensors"},
     {ConfigBoilerProcessor, "configBoiler", "Start the config of the Boiler"},
+    {BoilerProcessor, "boiler", "Start the Boiler console"},
 };
 
 CmdLine::Status ExitBoilerConfigProcessor(Stream &CmdStream, int Argc, char const** Args, void* Context)
@@ -291,6 +313,7 @@ CmdLine::Status SetBoilerHysteresisConfigProcessor(Stream &CmdStream, int Argc, 
     return CmdLine::Status::Ok;
 }
 
+
 CmdLine::ProcessorDesc configBoilerCmdProcessors[] =
     {
         {ExitBoilerConfigProcessor, "exit", "Exit the config of the boiler"},
@@ -302,9 +325,26 @@ CmdLine::ProcessorDesc configBoilerCmdProcessors[] =
         {SetBoilerHysteresisConfigProcessor, "setHysteresis", "Set the boiler's hysteresis. Format: setHysteresis <hysteresis>"},
 };
 
+CmdLine::Status ExitBoilerControlProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    ((ConsoleTask *)Context)->EndBoilerControl();
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status ShowBoilerControlProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::ProcessorDesc controlBoilerCmdProcessors[] =
+    {
+        {ExitBoilerControlProcessor, "exit", "Exit the control of the boiler"},
+        {ShowBoilerControlProcessor, "show", "Show current boiler state"},
+};
+
 ConsoleTask::ConsoleTask(Stream &StreamToUse)
-    :   _stream(StreamToUse),
-        _state(State::EnterMainMenu)
+    : _stream(StreamToUse),
+      _state(State::EnterMainMenu)
 {  
 }
 
@@ -375,6 +415,44 @@ void ConsoleTask::loop()
                     _stream.println();
                     _stream.println();
                     ShowCurrentBoilerConfig();
+                }
+                else
+                {
+                    // Leaving state
+                    _cmdLine.end();
+                }
+            }
+        }
+        break;
+
+        case State::EnterBoilerControl:
+        {
+            _cmdLine.end();
+            _cmdLine.begin(
+                _stream,
+                &controlBoilerCmdProcessors[0],
+                sizeof(controlBoilerCmdProcessors) / sizeof(CmdLine::ProcessorDesc),
+                "BoilerControl",
+                this);
+
+            _cmdLine.ShowHelp();
+            _stream.println();
+            _stream.println();
+            ShowCurrentBoilerState();
+
+            _state = State::BoilerControl;
+        }
+        break;
+
+        case State::BoilerControl:
+        {
+            if (_cmdLine.IsReady())
+            {
+                if (_state == State::BoilerControl)
+                {
+                    _stream.println();
+                    _stream.println();
+                    ShowCurrentBoilerState();
                 }
                 else
                 {
@@ -476,4 +554,22 @@ void ConsoleTask::ShowCurrentBoilerConfig()
 
     _stream.println();
     _stream.println();
+}
+
+void ConsoleTask::StartBoilerControl()
+{
+    _state = State::EnterBoilerControl;
+}
+
+void ConsoleTask::EndBoilerControl()
+{
+    _state = State::EnterMainMenu;
+}
+
+void ConsoleTask::ShowCurrentBoilerState()
+{
+    ShowCurrentBoilerConfig();
+    BoilerControllerTask::HeaterState hState = boilerControllerTask.GetHeaterState();
+    BoilerControllerTask::FaultReason fReason = boilerControllerTask.GetFaultReason();
+    printf(_stream, "Boiler State: HeaterState: %u; fReason: %u\n", hState, fReason);
 }

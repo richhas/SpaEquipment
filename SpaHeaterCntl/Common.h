@@ -35,9 +35,20 @@ extern int printf(Stream& ToStream, const char* Format, ...);
 
 // Helper for 64-bit formatted *printf output
 #define $PRIX64 "08X%08X"
-#define To$PRIX64(v) ((uint32_t)(v >> 32)), ((uint32_t)v)
+constexpr uint32_t To$PRIX64(uint64_t v)
+{
+    return ((uint32_t)(v >> 32)) << 16 | ((uint32_t)v);
+}
 
-//* Critical section support
+
+/**
+ * @brief A class that represents a critical section.
+ * 
+ * This class provides a convenient way to enter and exit a critical section
+ * in multi-threaded environments. The constructor enters the critical section,
+ * and the destructor exits the critical section automatically when the object
+ * goes out of scope.
+ */
 class CriticalSection
 {
 public:

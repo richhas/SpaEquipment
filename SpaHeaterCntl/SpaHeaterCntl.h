@@ -20,30 +20,50 @@ using namespace std;
 #include <WiFi.h>
 #include <WiFiS3.h>
 #include <DS18B20.h>
+#include <avr/pgmspace.h> // Include the library for code space resident strings
+
 
 
 
 //** Persistant storage partitions (8k max)
-const uint16_t        PS_NetworkConfigBase = 0;
-    const uint16_t    PS_NetworkConfigBlkSize = 256;
-const uint16_t        PS_BootRecordBase = PS_NetworkConfigBase + PS_NetworkConfigBlkSize;
-    const uint16_t    PS_BootRecordBlkSize = 32;
-const uint16_t        PS_TempSensorsConfigBase = PS_BootRecordBase + PS_BootRecordBlkSize;
-    const uint16_t    PS_TempSensorsConfigBlkSize = 128;
-const uint16_t        PS_MQTTBrokerConfigBase = PS_TempSensorsConfigBase + PS_TempSensorsConfigBlkSize;
-    const uint16_t    PS_MQTTBrokerConfigBlkSize = 256;
-const uint16_t        PS_BoilerConfigBase = PS_MQTTBrokerConfigBase + PS_MQTTBrokerConfigBlkSize;
-    const uint16_t    PS_BoilerConfigBlkSize = 256;
-const uint16_t        PS_TotalConfigSize = PS_BoilerConfigBase + PS_BoilerConfigBlkSize;
+constexpr uint16_t PS_NetworkConfigBase = 0;
+constexpr uint16_t PS_NetworkConfigBlkSize = 256;
+constexpr uint16_t PS_BootRecordBase = PS_NetworkConfigBase + PS_NetworkConfigBlkSize;
+constexpr uint16_t PS_BootRecordBlkSize = 32;
+constexpr uint16_t PS_TempSensorsConfigBase = PS_BootRecordBase + PS_BootRecordBlkSize;
+constexpr uint16_t PS_TempSensorsConfigBlkSize = 128;
+constexpr uint16_t PS_MQTTBrokerConfigBase = PS_TempSensorsConfigBase + PS_TempSensorsConfigBlkSize;
+constexpr uint16_t PS_MQTTBrokerConfigBlkSize = 256;
+constexpr uint16_t PS_BoilerConfigBase = PS_MQTTBrokerConfigBase + PS_MQTTBrokerConfigBlkSize;
+constexpr uint16_t PS_BoilerConfigBlkSize = 256;
+constexpr uint16_t PS_TotalConfigSize = PS_BoilerConfigBase + PS_BoilerConfigBlkSize;
 
-const uint16_t        PS_TotalDiagStoreSize = (8 * 1024) - PS_TotalConfigSize;
-const uint16_t        PS_DiagStoreBase = PS_TotalDiagStoreSize;
+constexpr uint16_t PS_TotalDiagStoreSize = (8 * 1024) - PS_TotalConfigSize;
+constexpr uint16_t PS_DiagStoreBase = PS_TotalDiagStoreSize;
 
 
 //** Common helpers
-#define $FtoC(F)     ((((float)F) - 32.0) * 5.0 / 9.0)
-#define $CtoF(C)     ((((float)C) * 9.0 / 5.0) + 32.0)
+/**
+ * Converts temperature from Fahrenheit to Celsius.
+ *
+ * @param F The temperature in Fahrenheit.
+ * @return The temperature in Celsius.
+ */
+constexpr float $FtoC(float F) 
+{
+    return (F - 32.0) * 5.0 / 9.0;
+}
 
+/**
+ * Converts temperature from Celsius to Fahrenheit.
+ *
+ * @param C The temperature in Celsius.
+ * @return The temperature in Fahrenheit.
+ */
+constexpr float $CtoF(float C) 
+{
+    return (C * 9.0 / 5.0) + 32.0;
+}
 
 
 //** All Task Types used
@@ -61,10 +81,15 @@ public:
 
     void StartBoilerConfig();
     void EndBoilerConfig();
+    void StartBoilerControl();
+    void EndBoilerControl();
 
 private:
     friend CmdLine::Status ShowBoilerConfigProcessor(Stream&, int, char const**, void*);
     void ShowCurrentBoilerConfig();
+
+    friend CmdLine::Status ShowBoilerControlProcessor(Stream&, int, char const**, void*);
+    void ShowCurrentBoilerState();
 
 private:
     Stream&         _stream;
@@ -75,6 +100,8 @@ private:
         MainMenu,
         EnterBoilerConfig,
         BoilerConfig,
+        EnterBoilerControl,
+        BoilerControl,
         EnterMainMenu,
     };
 
@@ -156,35 +183,129 @@ private:
 
 
 
-//* Task that implements the background thread for the boiler controller
+/*
+ * The BoilerControllerTask class is part of the Maxie HA system 2024 developed by TinyBus.
+ * It controls a spa heater and communicates with temperature sensors via a one-wire bus.
+ * 
+ * The class provides methods for reading temperature values from these sensors.
+ * It also includes methods for setting and getting the target temperatures,
+ * starting, stopping, and resetting the heater.
+ * 
+ * Additionally, it provides methods for snapshotting the current state of temperature sensors,
+ * target temperatures, and command, which can be used by the foreground task for monitoring and control purposes.
+ * 
+ * The BoilerControllerThreadEntry function is the entry point for the boiler controller task.
+ * It first calls the setup method of the boilerControllerTask object, then enters an infinite loop
+ * where it repeatedly calls the loop method of the boilerControllerTask object, waits for 1 second,
+ * and toggles the state of the _heaterActiveLedPin.
+ * 
+ * The BoilerControllerTask class has a constructor that initializes the _ds member variable with _oneWireBusPin,
+ * and a destructor that calls the $FailFast function, presumably to halt the system in case of a critical failure.
+ * 
+ * The ReadTemp method reads the temperature from a sensor with a given ID. If the sensor cannot be selected
+ * (presumably because it's not connected or not responding), it sets a fault reason to TempSensorNotFound and returns false.
+ * Otherwise, it reads the temperature from the sensor and returns true.
+ * 
+ * The GetFaultReason method returns the current fault reason. It uses a CriticalSection object to ensure thread safety
+ * when accessing shared data. The body of this method is not shown in the provided code.
+ */
 class BoilerControllerTask final : public ArduinoTask
 {
+public:
+    struct TempertureState
+    {
+        uint32_t    _sequence;              // incrmented on each state change
+        float       _ambiantTemp;
+        float       _boilerInTemp;
+        float       _boilerOutTemp;
+        float       _setPoint;
+        float       _hysteresis;
+        bool        _heaterOn;
+    };
+
+    struct TempSensorIds
+    {
+        uint64_t    _ambiantTempSensorId;
+        uint64_t    _boilerInTempSensorId;
+        uint64_t    _boilerOutTempSensorId;
+    };
+
+    struct TargetTemps
+    {
+        float       _setPoint;
+        float       _hysteresis;
+    };
+
+    enum class HeaterState
+    {
+        Halted,         // Heater is halted. No power to heater. Can be moved to Running state by calling Start().
+        Running,        // Heater is running. Can be moved to Halted state by calling Stop(). Will move to Faulted state if a fault is detected.
+        Faulted,        // Enters this state if a fault is detected. Can be moved to Halted state by calling Reset().
+    };
+
+    enum class FaultReason
+    {
+        None,
+        TempSensorNotFound,
+        TempSensorReadFailed
+    };
+
 public:
     BoilerControllerTask();
     ~BoilerControllerTask();
 
-    virtual void setup() override final;
-    virtual void loop() override final;
-    inline const vector<uint64_t> &GetTempSensors() const
-    {
-        return _sensors;
-    }
+    bool IsBusy();      // Returns true if the controller is busy processing a command (Start/Stop/Reset)
+    void Start();
+    void Stop();
+    void Reset();
+
+    inline const vector<uint64_t> &GetTempSensors() const { return _sensors; }
+    FaultReason GetFaultReason();
+    HeaterState GetHeaterState();
+    uint32_t GetHeaterStateSequence();
+    void GetTempertureState(TempertureState& State);
+    
+    void SetTempSensorIds(const TempSensorIds& SensorIds);
+    void SetTargetTemps(const TargetTemps& TargetTemps);
+
     static void BoilerControllerThreadEntry(void *pvParameters);
 
 private:
-    static const uint8_t _heaterControlPin = 13;
-    static const uint8_t _oneWireBusPin = 2;
-    DS18B20 _ds;
-    vector<uint64_t> _sensors;
-
-    enum State
+    enum class Command
     {
-        OnHold,
-        WaitForValidConfig,
-        Active
+        Start,
+        Stop,
+        Reset,
+        Idle
     };
 
-    State _state;
+private:
+    void SnapshotTempSensors(TempSensorIds& SensorIds);
+    void SnapshotTargetTemps(TargetTemps& Temps);
+    void SnapshotTempState(TempertureState& State);
+    Command SnapshotCommand();
+    void SafeSetFaultReason(FaultReason Reason);
+    void SafeSetHeaterState(HeaterState State);
+    void SafeClearCommand();
+
+    bool ReadTemp(uint64_t SensorId, float& Temp);      // Returns true if the sensor is valid and the temperature was read
+                                                        // else returns false and sets _faultReason to indicate the fault
+
+    virtual void setup() override final;
+    virtual void loop() override final;
+
+private:
+    static constexpr uint8_t    _heaterControlPin = 4;
+    static constexpr uint8_t    _heaterActiveLedPin = 13;
+    static constexpr uint8_t    _oneWireBusPin = 2;
+    DS18B20                     _ds;
+    vector<uint64_t>            _sensors;
+    TempSensorIds               _sensorIds; 
+    HeaterState                 _state;
+    TargetTemps                 _targetTemps;
+    FaultReason                 _faultReason;
+    TempertureState             _tempState;
+    Command                     _command;
 };
 
 

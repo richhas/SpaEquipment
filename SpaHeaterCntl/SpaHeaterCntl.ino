@@ -88,15 +88,22 @@ BoilerControllerTask boilerControllerTask;
 TaskHandle_t mainThread;
 TaskHandle_t backgroundThread;
 
+void EnableRtcAfterPOR()
+{
+    $Assert(RTC.begin());
+
+    // This strange, and time losing, sequence must be done to make the RTC start each POR
+    // and thus retain its contents
+    $Assert(!RTC.isRunning());
+    RTCTime now;
+    RTC.getTime(now);
+    RTC.setTimeIfNotRunning(now);
+}
+
 void setup()
 {
-    //* First thing - re-enable the RTC VBATT power switch so not to reset it if a Reset occurs to the UNO
-    //  past this point
-/*    
-    R_SYSTEM->PRCR = 0xA502 | (R_SYSTEM->PRCR & ~0x02);         // Must write enable VBTCR1
-    R_SYSTEM->VBTCR1 = R_SYSTEM->VBTCR1 & ~0x01;                // Turn off BPWSWSTP
-    R_SYSTEM->PRCR = 0xA500 | (R_SYSTEM->PRCR & ~0x02);         // Write protect VBTCR1
-*/
+    EnableRtcAfterPOR();        // must be done right after POR to minimize loss of time
+
     Serial.begin(9600);
     delay(1000);
 
@@ -158,26 +165,23 @@ void FinishStart()
     }
 
     matrixTask.PutString("S03");
-    $Assert(RTC.begin());
-
-    matrixTask.PutString("S04");
     logger.Begin(bootRecord.GetRecord().BootCount);
 
-    matrixTask.PutString("S05");
+    matrixTask.PutString("S04");
     tempSensorsConfig.Begin();
 
-    matrixTask.PutString("S06");
+    matrixTask.PutString("S05");
     boilerConfig.Begin();
     if (boilerConfig.IsValid() == false)
     {
-        boilerConfig.GetRecord()._setPoint = 100.0;
+        boilerConfig.GetRecord()._setPoint = 38.0;
         boilerConfig.GetRecord()._hysteresis = 0.75;
         boilerConfig.Write();
         boilerConfig.Begin();
         $Assert(boilerConfig.IsValid());
     }
 
-    matrixTask.PutString("S07");
+    matrixTask.PutString("S06");
     auto const status = xTaskCreate(
         BoilerControllerTask::BoilerControllerThreadEntry,
         static_cast<const char *>("Loop Thread"),
@@ -193,15 +197,15 @@ void FinishStart()
         $FailFast();
     }
 
-    matrixTask.PutString("S08");
+    matrixTask.PutString("S07");
     consoleTask.setup();
-    matrixTask.PutString("S09");
+    matrixTask.PutString("S08");
 
-    matrixTask.PutString("S10");
+    matrixTask.PutString("S09");
     wifiJoinApTask.setup();
-    matrixTask.PutString("S11");
+    matrixTask.PutString("S10");
     network.setup();
-    matrixTask.PutString("S12");
+    matrixTask.PutString("S11");
 }
 
 CmdLine::Status StartTcpProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
