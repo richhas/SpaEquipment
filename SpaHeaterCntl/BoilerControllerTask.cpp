@@ -200,31 +200,30 @@ void BoilerControllerTask::loop()
             return;
         }
 
+        // Each time we enter the Running state we need to snapshot the current state
+        SnapshotTempSensors(sensors);
+        SnapshotTargetTemps(targetTemps);
+        SnapshotTempState(tempState);
+
+        // Auto update the target temps if they are different from the current target temps
+        if (targetTemps._setPoint != tempState._setPoint ||
+            targetTemps._hysteresis != tempState._hysteresis)
+        {
+            { CriticalSection cs;
+                _tempState._sequence++; // Increment the sequence number so foreground task
+                                        // knows the target temp has changed
+                _tempState._setPoint = targetTemps._setPoint;
+                _tempState._hysteresis = targetTemps._hysteresis;
+            }
+
+            // And keep our local copy of the set point and hysteresis up to date
+            tempState._setPoint = targetTemps._setPoint;
+            tempState._hysteresis = targetTemps._hysteresis;
+        }
+
         if (firstTimeInRunningState)
         {
             firstTimeInRunningState = false;
-
-            // Each time we enter the Running state we need to snapshot the current state
-            SnapshotTempSensors(sensors);
-            SnapshotTargetTemps(targetTemps);
-            SnapshotTempState(tempState);
-
-            // Auto update the target temps if they are different from the current target temps
-            if (targetTemps._setPoint != tempState._setPoint ||
-                targetTemps._hysteresis != tempState._hysteresis)
-            {
-                {
-                    CriticalSection cs;
-                    _tempState._sequence++; // Increment the sequence number so foreground task
-                                            // knows the target temp has changed
-                    _tempState._setPoint = targetTemps._setPoint;
-                    _tempState._hysteresis = targetTemps._hysteresis;
-                }
-
-                // And keep our local copy of the set point and hysteresis up to date
-                tempState._setPoint = targetTemps._setPoint;
-                tempState._hysteresis = targetTemps._hysteresis;
-            }
 
             // First time in the Running state - initialize our inner state machine
             nextReadTimer.SetAlarm(0); // Read temps immediately
@@ -267,8 +266,7 @@ void BoilerControllerTask::loop()
                 boilerInTemp != tempState._boilerInTemp ||
                 boilerOutTemp != tempState._boilerOutTemp)
 
-            {
-                CriticalSection cs;
+            { CriticalSection cs;
                 // The temps have changed - update our local copy
                 _tempState._sequence++; // Increment the sequence number so foreground task knows the temps have changed
                 _tempState._ambiantTemp = ambiantTemp;
@@ -306,13 +304,12 @@ void BoilerControllerTask::loop()
                 digitalWrite(_heaterControlPin, true);
             }
 
-            if (_heaterControlPin != tempState._heaterOn)
+            if (digitalRead(_heaterControlPin) != tempState._heaterOn)
             {
                 // The heater state has changed - update our local copy
                 tempState._heaterOn = digitalRead(_heaterControlPin);
 
-                {
-                    CriticalSection cs;
+                { CriticalSection cs;
                     // Update the temp state for the foreground task's access
                     _tempState._sequence++; // Increment the sequence number so foreground task knows the heater state has changed
                     _tempState._heaterOn = tempState._heaterOn;
