@@ -106,6 +106,15 @@ void setup()
     Serial.begin(9600);
     delay(1000);
 
+    Serial1.begin(9600);
+    while (true)
+    {
+        while (Serial1.available())
+        {
+            Serial.write(Serial1.read());
+        }
+    }
+
     matrixTask.setup();
     matrixTask.PutString("S00");
 
