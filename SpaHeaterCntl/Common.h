@@ -84,19 +84,6 @@ private:
     uint32_t    _alarmTime;         // msecs
 };
 
-class uTimer
-{
-public:
-    static const uint32_t FOREVER = UINT32_MAX;
-
-    __inline uTimer() : _alarmTime(0) {}
-    __inline uTimer(uint32_t AlarmInUSecs) { _alarmTime = micros() + AlarmInUSecs; }
-    __inline void SetAlarm(uint32_t AlarmInUSecs) { (_alarmTime = (AlarmInUSecs == FOREVER) ? FOREVER : micros() + AlarmInUSecs); }
-    __inline bool IsAlarmed() { return ((_alarmTime == FOREVER) ? false : (micros() >= _alarmTime)); }
-private:
-    uint32_t    _alarmTime;         // usecs
-};
-
 
 //** Stream serializible interface
 class ISerializable
@@ -127,23 +114,19 @@ public:
     virtual void loop() = 0;
 
 protected:
-/*
+#if SAMD51_SERIES
     UUID GetSystemID()
     {
         UUID result;
 
-        #if SAMD51_SERIES
-            result._words[0] = *((uint32_t*)0x008061FC);
-            result._words[1] = *((uint32_t*)0x00806010);
-            result._words[2] = *((uint32_t*)0x00806014);
-            result._words[3] = *((uint32_t*)0x00806018);
-        #else
-            #error "Target build processor is not known"
-        #endif
+        result._words[0] = *((uint32_t*)0x008061FC);
+        result._words[1] = *((uint32_t*)0x00806010);
+        result._words[2] = *((uint32_t*)0x00806014);
+        result._words[3] = *((uint32_t*)0x00806018);
 
         return result;
     }
-  */
+#endif
 };
 
 /* EEPROM config support */

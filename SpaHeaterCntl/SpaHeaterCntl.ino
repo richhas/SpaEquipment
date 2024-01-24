@@ -1,6 +1,5 @@
 // SPA Heater Controller for Maxie HA system 2024 (c)TinyBus
 
-#include <Arduino_FreeRTOS.h>
 #include <ArduinoMqttClient.h>
 #include "SpaHeaterCntl.h"
 
@@ -224,57 +223,126 @@ CmdLine::Status StopTcpProcessor(Stream &CmdStream, int Argc, char const **Args,
     return CmdLine::Status::Ok;
 }
 
+void SetAllBoilerParametersFromConfig()
+{
+    BoilerControllerTask::TargetTemps temps;
+    temps._setPoint = boilerConfig.GetRecord()._setPoint;
+    temps._hysteresis = boilerConfig.GetRecord()._hysteresis;
+
+    BoilerControllerTask::TempSensorIds sensorIds;
+    sensorIds._ambiantTempSensorId = tempSensorsConfig.GetRecord()._ambiantTempSensorId;
+    sensorIds._boilerInTempSensorId = tempSensorsConfig.GetRecord()._boilerInTempSensorId;
+    sensorIds._boilerOutTempSensorId = tempSensorsConfig.GetRecord()._boilerOutTempSensorId;
+
+    boilerControllerTask.SetTargetTemps(temps);
+    boilerControllerTask.SetTempSensorIds(sensorIds);
+}
+
+void MonitorBoiler()
+{
+    static uint32_t lastSeq = 0;
+    static Timer timer(1000);
+    static BoilerControllerTask::TempertureState state;
+
+    if (timer.IsAlarmed())
+    {
+        auto const seq = boilerControllerTask.GetHeaterStateSequence();
+        if (seq != lastSeq)
+        {
+            if (seq != 0)
+            {
+                BoilerControllerTask::TempertureState newState;
+                boilerControllerTask.GetTempertureState(newState);
+
+                if (newState._boilerInTemp != state._boilerInTemp)
+                    printf(Serial, "Main: Changed: Boiler In Temp: %f\n", newState._boilerInTemp);
+                if (newState._boilerOutTemp != state._boilerOutTemp)
+                    printf(Serial, "Main: Changed: Boiler Out Temp: %f\n", newState._boilerOutTemp);
+                if (newState._ambiantTemp != state._ambiantTemp)
+                    printf(Serial, "Main: Changed: Ambiant Temp: %f\n", newState._ambiantTemp);
+               if (newState._setPoint != state._setPoint)
+                    printf(Serial, "Main: Changed: Set Point: %f\n", newState._setPoint);          
+                if (newState._hysteresis != state._hysteresis)
+                    printf(Serial, "Main: Changed: Hysteresis: %f\n", newState._hysteresis);
+                if (newState._heaterOn != state._heaterOn)
+                    printf(Serial, "Main: Changed: Heater On: %s\n", newState._heaterOn ? "true" : "false");
+
+                state = newState;
+            }
+            else
+            {
+                boilerControllerTask.GetTempertureState(state);
+            }
+            lastSeq = seq;
+        }
+
+        timer.SetAlarm(1000);
+    }   
+
+}
+
 bool doMQTT = false;
 
 void loop() 
 {
-    /*
-    static Timer timer(0);
-
-    if (timer.IsAlarmed())
-    {
-        timer.SetAlarm(2000);
-        logger.Printf(Logger::RecType::Info, "loop() (main)");
-    }
-    */
-
     consoleTask.loop();
     matrixTask.loop();
     wifiJoinApTask.loop();
 
+    static bool firstHeaterStateMachineStarted = false;
+    if (!firstHeaterStateMachineStarted)
+    {
+        $Assert(boilerControllerTask.GetHeaterState() == BoilerControllerTask::HeaterState::Halted);
+
+        // If Boiler State Machine is never been started, start it iff we have a valid config for it
+        if (boilerConfig.IsValid() && boilerConfig.GetRecord().IsConfigured() &&
+            tempSensorsConfig.IsValid() && tempSensorsConfig.GetRecord().IsConfigured())
+        {
+            logger.Printf(Logger::RecType::Info, "Main: Autostarting Boiler State Machine");
+            firstHeaterStateMachineStarted = true;
+
+            // Set all needed to prime the boiler state machine
+            SetAllBoilerParametersFromConfig();
+            boilerControllerTask.Start();
+        }
+    }
+
     // Network dependent Tasks will get started and given time only after we kow we have a valid
     // wifi config
-    if (wifiJoinApTask.IsCompleted())
+    if (!wifiJoinApTask.IsCompleted())
+        return;
+    $Assert(wifiJoinApTask.IsConfigured()); // should be true by now
+
+    //** Only Network dependent Tasks will get started and given time only after we kow we have a valid wifi config
+    static bool firstTime = true;
+
+    if (firstTime)
     {
-        static bool firstTime = true;
+        // First time we've had the wifi config completed - let wifi dependent Tasks set up
+        firstTime = false;
 
-        $Assert(wifiJoinApTask.IsConfigured());
+        const char* ssid;
+        const char* password;
 
-        if (firstTime)
-        {
-            // First time we've had the wifi config completed - let wifi dependent Tasks set up
-            firstTime = false;
+        wifiJoinApTask.GetNetworkConfig(ssid, password);
+        network.Begin(ssid, password);
 
-            const char* ssid;
-            const char* password;
+        StartTelnet();
+    }
 
-            wifiJoinApTask.GetNetworkConfig(ssid, password);
-            network.Begin(ssid, password);
-
-            StartTelnet();
-        }
-
-/*
+    network.loop();     // give network a chance to do its thing
+    MonitorBoiler();
+    
+    
+    /*
         if ((doMQTT == false) && (WiFi.status() == WL_CONNECTED))
         {
             tryMQTT();
             doMQTT = true;
         }
-*/
+    */
 
-        // Give each wifi dependent Task time
-        network.loop();
-/*
+    /*
         if (doMQTT == true)
         {
             // call poll() regularly to allow the library to send MQTT keep alives which
@@ -305,6 +373,5 @@ void loop()
                 xCount++;
             }
         }
-*/        
-    }
+    */        
 }

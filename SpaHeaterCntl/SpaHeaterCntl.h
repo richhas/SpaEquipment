@@ -86,7 +86,7 @@ public:
 
 private:
     friend CmdLine::Status ShowBoilerConfigProcessor(Stream&, int, char const**, void*);
-    void ShowCurrentBoilerConfig();
+    void ShowCurrentBoilerConfig(int PostLineFeedCount = 2);
 
     friend CmdLine::Status ShowBoilerControlProcessor(Stream&, int, char const**, void*);
     void ShowCurrentBoilerState();
@@ -212,6 +212,7 @@ private:
 class BoilerControllerTask final : public ArduinoTask
 {
 public:
+    // Overall current as seen by the boiler controller task
     struct TempertureState
     {
         uint32_t    _sequence;              // incrmented on each state change
@@ -222,33 +223,131 @@ public:
         float       _hysteresis;
         bool        _heaterOn;
     };
+    static void DisplayTemperatureState(Stream& output, const TempertureState& state, const char* prependString = "");
 
+    // Sensor IDs for the ambiant, boiler in, and boiler out temperature sensors
     struct TempSensorIds
     {
         uint64_t    _ambiantTempSensorId;
         uint64_t    _boilerInTempSensorId;
         uint64_t    _boilerOutTempSensorId;
     };
+    static void DisplayTempSensorIds(Stream& output, const TempSensorIds& ids, const char* prependString = "");
 
+    // Target temperatures for the boiler (in C) and hysteresis (in C).
+    // Effective target temperature (setPoint) and the hard on and off thresholds.
     struct TargetTemps
     {
         float       _setPoint;
         float       _hysteresis;
     };
+    static void DisplayTargetTemps(Stream& output, const TargetTemps& temps, const char* prependString = "");
 
+    // States of the heater
     enum class HeaterState
     {
         Halted,         // Heater is halted. No power to heater. Can be moved to Running state by calling Start().
         Running,        // Heater is running. Can be moved to Halted state by calling Stop(). Will move to Faulted state if a fault is detected.
         Faulted,        // Enters this state if a fault is detected. Can be moved to Halted state by calling Reset().
     };
-
+    static constexpr const char* GetHeaterStateDescription(HeaterState state)
+    {
+        switch (state)
+        {
+            case HeaterState::Halted:
+                    return PSTR("Halted");
+            case HeaterState::Running:
+                return PSTR("Running");
+            case HeaterState::Faulted:
+                return PSTR("Faulted");
+            default:
+                return PSTR("Unknown");
+        }
+    }
+    
+    // Reasons for entering the Faulted state
     enum class FaultReason
     {
         None,
         TempSensorNotFound,
         TempSensorReadFailed
     };
+    static constexpr const char* GetFaultReasonDescription(FaultReason reason)
+    {
+        switch (reason)
+        {
+            case FaultReason::None:
+                return PSTR("None");
+            case FaultReason::TempSensorNotFound:
+                return PSTR("TempSensorNotFound");
+            case FaultReason::TempSensorReadFailed:
+                return PSTR("TempSensorReadFailed");
+            default:
+                return PSTR("Unknown");
+        }
+    }
+
+    // Commands that can be issued to the controller
+    enum class Command
+    {
+        Start,
+        Stop,
+        Reset,
+        Idle
+    };
+    static constexpr const char* GetCommandDescription(Command command) 
+    {
+        switch (command) 
+        {
+            case Command::Start:
+                return PSTR("Start");
+            case Command::Stop:
+                return PSTR("Stop");
+            case Command::Reset:
+                return PSTR("Reset");
+            case Command::Idle:
+                return PSTR("Idle");
+            default:
+                return PSTR("Unknown");
+        }
+    }
+
+    // Diagnostic performance counter for the one-wire bus
+    struct OneWireBusStats
+    {
+        uint32_t    _totalReadCount;
+        uint32_t    _totalReadTimeInMS;
+        uint32_t    _maxReadTimeInMS;
+        uint32_t    _minReadTimeInMS;
+    };
+    static void DisplayOneWireBusStats(Stream& output, const OneWireBusStats& stats, const char* prependString = "")
+    {
+        printf(output, PSTR("%sTotalReadCount: %u\n"), prependString, stats._totalReadCount);
+        printf(output, PSTR("%sTotalReadTimeInMS: %u\n"), prependString, stats._totalReadTimeInMS);
+        printf(output, PSTR("%sAvgReadTimeInMS: %u\n"), prependString, stats._totalReadTimeInMS / stats._totalReadCount);
+        printf(output, PSTR("%sMaxReadTimeInMS: %u\n"), prependString, stats._maxReadTimeInMS);
+        printf(output, PSTR("%sMinReadTimeInMS: %u\n"), prependString, stats._minReadTimeInMS);
+    }
+
+    void ClearOneWireBusStats() 
+    { 
+        { CriticalSection cs; 
+            _oneWireStats = 
+            { 
+                ._totalReadCount = 0, 
+                ._totalReadTimeInMS = 0, 
+                ._maxReadTimeInMS = 0, 
+                ._minReadTimeInMS = 0xFFFFFFFF
+            };
+        }
+    }
+
+    void GetOneWireBusStats(OneWireBusStats& Stats)
+    {
+        { CriticalSection cs;
+            Stats = _oneWireStats;
+        }
+    }
 
 public:
     BoilerControllerTask();
@@ -268,16 +367,11 @@ public:
     void SetTempSensorIds(const TempSensorIds& SensorIds);
     void SetTargetTemps(const TargetTemps& TargetTemps);
 
-    static void BoilerControllerThreadEntry(void *pvParameters);
+    inline void GetTargetTemps(TargetTemps& Temps) { SnapshotTargetTemps(Temps); }
+    inline Command GetCommand() { return SnapshotCommand(); }
+    inline void GetTempSensorIds(TempSensorIds& SensorIds) { SnapshotTempSensors(SensorIds); }
 
-private:
-    enum class Command
-    {
-        Start,
-        Stop,
-        Reset,
-        Idle
-    };
+    static void BoilerControllerThreadEntry(void *pvParameters);
 
 private:
     void SnapshotTempSensors(TempSensorIds& SensorIds);
@@ -306,6 +400,7 @@ private:
     FaultReason                 _faultReason;
     TempertureState             _tempState;
     Command                     _command;
+    OneWireBusStats             _oneWireStats;
 };
 
 
@@ -378,6 +473,11 @@ struct BoilerConfig
 {
     float       _setPoint;      // Target temperature in C
     float       _hysteresis;    // Hysteresis in C
+
+    inline bool IsConfigured()
+    {
+        return ((_setPoint >= 0.0) && (_hysteresis > 0.0));
+    }  
 };
 #pragma pack(pop)
 
@@ -602,3 +702,4 @@ extern shared_ptr<TelnetServer> telnetServer;
 extern class FlashStore<TempSensorsConfig, PS_TempSensorsConfigBase> tempSensorsConfig;
 extern class BoilerControllerTask boilerControllerTask;
 extern class FlashStore<BoilerConfig, PS_BoilerConfigBase> boilerConfig;
+extern void SetAllBoilerParametersFromConfig();

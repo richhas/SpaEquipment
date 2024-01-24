@@ -58,17 +58,17 @@ void BoilerControllerTask::setup()
     pinMode(_heaterActiveLedPin, OUTPUT);
     digitalWrite(_heaterActiveLedPin, false);
 
+    // initialize all state visible to the foreground task
     _state = HeaterState::Halted;
     _command = Command::Idle;
     _faultReason = FaultReason::None;
-    _tempState._sequence = 0;
-    _tempState._ambiantTemp = 0;
-    _tempState._boilerInTemp = 0;
-    _tempState._boilerOutTemp = 0;
-    _tempState._setPoint = 0.0;
-    _tempState._hysteresis = 0.0;
-    _tempState._heaterOn = false;
 
+    memset(&_tempState, 0, sizeof(_tempState));
+    _tempState._sequence = 1;
+
+    ClearOneWireBusStats();
+
+    // discover the temperature sensors on the one wire bus for use be forgraound task (e.g. configures the sensors)
     logger.Printf(Logger::RecType::Info, "BoilerControllerTask: Start bus enumeration\n");
     while (_ds.selectNext())
     {
@@ -157,10 +157,32 @@ void BoilerControllerTask::setup()
  */
 void BoilerControllerTask::loop()
 {
-    // Check for commands from the foreground task
-    BoilerControllerTask::Command command = SnapshotCommand();
-
     static bool firstTimeInRunningState = true;
+    static TempSensorIds sensors;
+    static TargetTemps targetTemps;
+    static TempertureState tempState;
+
+    // Each time we loop we need to snapshot the current state
+    BoilerControllerTask::Command command = SnapshotCommand();
+    SnapshotTempSensors(sensors);
+    SnapshotTargetTemps(targetTemps);
+    SnapshotTempState(tempState);
+
+    // Auto update the target temps if they are different from the current target temps
+    if (targetTemps._setPoint != tempState._setPoint ||
+        targetTemps._hysteresis != tempState._hysteresis)
+    {
+        { CriticalSection cs;
+            _tempState._sequence++; // Increment the sequence number so foreground task
+                                    // knows the target temp has changed
+            _tempState._setPoint = targetTemps._setPoint;
+            _tempState._hysteresis = targetTemps._hysteresis;
+        }
+
+        // And keep our local copy of the set point and hysteresis up to date
+        tempState._setPoint = targetTemps._setPoint;
+        tempState._hysteresis = targetTemps._hysteresis;
+    }
 
     switch (_state)
     {
@@ -186,9 +208,6 @@ void BoilerControllerTask::loop()
         };
 
         static State state;
-        static TempSensorIds sensors;
-        static TargetTemps targetTemps;
-        static TempertureState tempState;
         static Timer nextReadTimer;
 
         if (command == Command::Stop)
@@ -198,27 +217,6 @@ void BoilerControllerTask::loop()
             SafeSetHeaterState(HeaterState::Halted); // Go back to the Halted state
             digitalWrite(_heaterControlPin, false);  // Make sure the heater is turned off
             return;
-        }
-
-        // Each time we enter the Running state we need to snapshot the current state
-        SnapshotTempSensors(sensors);
-        SnapshotTargetTemps(targetTemps);
-        SnapshotTempState(tempState);
-
-        // Auto update the target temps if they are different from the current target temps
-        if (targetTemps._setPoint != tempState._setPoint ||
-            targetTemps._hysteresis != tempState._hysteresis)
-        {
-            { CriticalSection cs;
-                _tempState._sequence++; // Increment the sequence number so foreground task
-                                        // knows the target temp has changed
-                _tempState._setPoint = targetTemps._setPoint;
-                _tempState._hysteresis = targetTemps._hysteresis;
-            }
-
-            // And keep our local copy of the set point and hysteresis up to date
-            tempState._setPoint = targetTemps._setPoint;
-            tempState._hysteresis = targetTemps._hysteresis;
         }
 
         if (firstTimeInRunningState)
@@ -238,9 +236,29 @@ void BoilerControllerTask::loop()
             float boilerInTemp = tempState._boilerInTemp;
             float boilerOutTemp = tempState._boilerOutTemp;
 
-            bool ambiantTempRead = ReadTemp(sensors._ambiantTempSensorId, ambiantTemp);
-            bool boilerInTempRead = ReadTemp(sensors._boilerInTempSensorId, boilerInTemp);
-            bool boilerOutTempRead = ReadTemp(sensors._boilerOutTempSensorId, boilerOutTemp);
+            static uint8_t sensorIndexToRead = 0;
+
+            bool ambiantTempRead = true;
+            bool boilerInTempRead = true;
+            bool boilerOutTempRead = true;
+
+            // Read the temps from the sensors in a round robin fashion
+            switch (sensorIndexToRead)
+            {
+            case 0:
+                ambiantTempRead = ReadTemp(sensors._ambiantTempSensorId, ambiantTemp);
+                break;
+            
+            case 1:
+                boilerInTempRead = ReadTemp(sensors._boilerInTempSensorId, boilerInTemp);
+                break;
+
+            case 2:
+                boilerOutTempRead = ReadTemp(sensors._boilerOutTempSensorId, boilerOutTemp);
+                break;
+            }
+
+            sensorIndexToRead = (sensorIndexToRead + 1) % 3;
 
             if (!boilerInTempRead)
             {
@@ -267,7 +285,7 @@ void BoilerControllerTask::loop()
                 boilerOutTemp != tempState._boilerOutTemp)
 
             { CriticalSection cs;
-                // The temps have changed - update our local copy
+                // The temps have changed - update the shared state for the foreground task's access
                 _tempState._sequence++; // Increment the sequence number so foreground task knows the temps have changed
                 _tempState._ambiantTemp = ambiantTemp;
                 _tempState._boilerInTemp = boilerInTemp;
@@ -282,7 +300,7 @@ void BoilerControllerTask::loop()
             tempState._boilerInTemp = boilerInTemp;
             tempState._boilerOutTemp = boilerOutTemp;
 
-            nextReadTimer.SetAlarm(4000); // Read temps again in 4 seconds
+            nextReadTimer.SetAlarm(1333);   // Cause all sensors to be read again in 4 seconds
             state = State::ControlHeater;
         }
         break;
@@ -346,6 +364,7 @@ void BoilerControllerTask::loop()
     }
 }
 
+//** BoilerControllerTask constructor and destructor
 BoilerControllerTask::BoilerControllerTask()
     : _ds(_oneWireBusPin)
 {
@@ -356,8 +375,10 @@ BoilerControllerTask::~BoilerControllerTask()
     $FailFast();
 }
 
+// Support for reading temperatures from the sensors
 bool BoilerControllerTask::ReadTemp(uint64_t SensorId, float &Temp)
 {
+    auto startTime = millis();
     if (!_ds.select((uint8_t *)(&SensorId)))
     {
         SafeSetFaultReason(FaultReason::TempSensorNotFound);
@@ -365,6 +386,19 @@ bool BoilerControllerTask::ReadTemp(uint64_t SensorId, float &Temp)
     }
 
     Temp = _ds.getTempC();
+    auto endTime = millis();
+    auto elapsed = endTime - startTime;
+
+    { CriticalSection cs;
+        _oneWireStats._totalReadCount++;
+        _oneWireStats._totalReadTimeInMS += elapsed;
+        if (elapsed > _oneWireStats._maxReadTimeInMS)
+            _oneWireStats._maxReadTimeInMS = elapsed;
+        if (elapsed < _oneWireStats._minReadTimeInMS)
+            _oneWireStats._minReadTimeInMS = elapsed;
+    }
+
+
     return true;
 }
 
@@ -512,3 +546,30 @@ void BoilerControllerTask::Reset()          // Resets the heater - only valid if
     }
 }
 
+//** Public data structure display methods
+void BoilerControllerTask::DisplayTemperatureState(Stream &output, const TempertureState &state, const char *prependString)
+{
+    printf(output, "%sTemperature State:\n", prependString);
+    printf(output, "%s    Sequence: %u\n", prependString, state._sequence);
+    printf(output, "%s    Ambient Temperature: %.2fC (%.2fF)\n", prependString, state._ambiantTemp, $CtoF(state._ambiantTemp));
+    printf(output, "%s    Boiler In Temperature: %.2f (%.2fF)\n", prependString, state._boilerInTemp, $CtoF(state._boilerInTemp));
+    printf(output, "%s    Boiler Out Temperature: %.2f (%.2fF)\n", prependString, state._boilerOutTemp, $CtoF(state._boilerOutTemp));
+    printf(output, "%s    Set Point: %.2f (%.2fF)\n", prependString, state._setPoint, $CtoF(state._setPoint));
+    printf(output, "%s    Hysteresis: %.2f\n", prependString, state._hysteresis);
+    printf(output, "%s    Heater On: %s\n", prependString, state._heaterOn ? "true" : "false");
+}
+
+void BoilerControllerTask::DisplayTempSensorIds(Stream &output, const TempSensorIds &ids, const char *prependString)
+{
+    printf(output, "%sTemperature Sensor IDs:\n", prependString);
+    printf(output, "%s    Ambient Temperature Sensor ID: %" $PRIX64 "\n", prependString, To$PRIX64(ids._ambiantTempSensorId));
+    printf(output, "%s    Boiler In Temperature Sensor ID: %" $PRIX64 "\n", prependString, To$PRIX64(ids._boilerInTempSensorId));
+    printf(output, "%s    Boiler Out Temperature Sensor ID: %" $PRIX64 "\n", prependString, To$PRIX64(ids._boilerOutTempSensorId));
+}
+
+void BoilerControllerTask::DisplayTargetTemps(Stream &output, const TargetTemps &temps, const char *prependString)
+{
+    printf(output, "%sTarget Temperatures:\n", prependString);
+    printf(output, "%s    Set Point: %.2fC (%.2fF)\n", prependString, temps._setPoint, $CtoF(temps._setPoint));
+    printf(output, "%s    Hysteresis: %.2f\n", prependString, temps._hysteresis);
+}

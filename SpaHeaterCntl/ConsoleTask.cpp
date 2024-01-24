@@ -336,10 +336,108 @@ CmdLine::Status ShowBoilerControlProcessor(Stream &CmdStream, int Argc, char con
     return CmdLine::Status::Ok;
 }
 
+CmdLine::Status SetBoilerParamsControlProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    if (Argc != 1)
+    {
+        printf(CmdStream, "Set boiler temp. Usage: setTemp <target> <hystersis>");
+        return CmdLine::Status::UnexpectedParameterCount;
+    }
+
+    if (!boilerConfig.IsValid() || !tempSensorsConfig.IsValid())
+    {
+        CmdStream.println("Boiler config is not valid");
+        return CmdLine::Status::CommandFailed;
+    }
+
+    SetAllBoilerParametersFromConfig(); 
+
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status StartBoilerControlProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    if (Argc != 1)
+    {
+        printf(CmdStream, "Start boiler. Usage: start");
+        return CmdLine::Status::UnexpectedParameterCount;
+    }
+
+    if (boilerControllerTask.IsBusy() || (boilerControllerTask.GetHeaterState() != BoilerControllerTask::HeaterState::Halted))
+    {
+        CmdStream.println("Boiler is not ready");
+        return CmdLine::Status::CommandFailed;
+    }
+
+    boilerControllerTask.Start();
+
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status StopBoilerControlProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    if (Argc != 1)
+    {
+        printf(CmdStream, "Stop boiler. Usage: stop");
+        return CmdLine::Status::UnexpectedParameterCount;
+    }
+
+    if (boilerControllerTask.IsBusy() || (boilerControllerTask.GetHeaterState() != BoilerControllerTask::HeaterState::Running))
+    {
+        CmdStream.println("Boiler is not ready");
+        return CmdLine::Status::CommandFailed;
+    }
+
+    boilerControllerTask.Stop();
+
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status ResetBoilerControlProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    if (Argc != 1)
+    {
+        printf(CmdStream, "Reset boiler. Usage: reset");
+        return CmdLine::Status::UnexpectedParameterCount;
+    }
+
+    if (boilerControllerTask.IsBusy() || (boilerControllerTask.GetHeaterState() != BoilerControllerTask::HeaterState::Faulted))
+    {
+        CmdStream.println("Boiler is not ready");
+        return CmdLine::Status::CommandFailed;
+    }
+
+    boilerControllerTask.Reset();
+
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status ClearOneWireStatsControlProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    if (Argc != 1)
+    {
+        printf(CmdStream, "Clear OneWire Bus Stats. Usage: clearOWStats");
+        return CmdLine::Status::UnexpectedParameterCount;
+    }
+
+    boilerControllerTask.ClearOneWireBusStats();
+
+    return CmdLine::Status::Ok;
+}
+
 CmdLine::ProcessorDesc controlBoilerCmdProcessors[] =
     {
-        {ExitBoilerControlProcessor, "exit", "Exit the control of the boiler"},
+        {AssignTempConfigProcessor, "assign", "Assign sensor to function. Format: assign <sensor number> 'ambiant'|'boilerIn'|'boilerOut'"},
+        {SetBoilerTargetTempInFConfigProcessor, "setTempF", "Set the boiler's target temperature config in degrees F. Format: setTempF <temp>"},
+        {SetBoilerTargetTempInCConfigProcessor, "setTempC", "Set the boiler's target temperature config in degrees C. Format: setTempC <temp>"},
+        {SetBoilerHysteresisConfigProcessor, "setHysteresis", "Set the boiler's hysteresis in config. Format: setHysteresis <hysteresis>"},
+        {SetBoilerParamsControlProcessor, "setBoilerConfig", "Set boiler's parameters from its config. Usage: setBoilerConfig"},
+        {StartBoilerControlProcessor, "Start", "Start the boiler state machine - only if it is Faulted or Stopped. Usage: setBoilerConfig"},
+        {StopBoilerControlProcessor, "Stop", "Stop the boiler state machine - only if it is Running. Usage: setBoilerConfig"},
+        {ResetBoilerControlProcessor, "Reset", "Reset the boiler state machine - only if it is Faulted. Usage: setBoilerConfig"},
         {ShowBoilerControlProcessor, "show", "Show current boiler state"},
+        {ClearOneWireStatsControlProcessor, "clearOWStats", "Clear the OneWire Bus Stats"},
+        {ExitBoilerControlProcessor, "exit", "Exit the control of the boiler"},
 };
 
 ConsoleTask::ConsoleTask(Stream &StreamToUse)
@@ -481,7 +579,7 @@ void ConsoleTask::EndBoilerConfig()
     _state = State::EnterMainMenu;
 }
 
-void ConsoleTask::ShowCurrentBoilerConfig()
+void ConsoleTask::ShowCurrentBoilerConfig(int PostLineFeedCount)
 {
     printf(_stream, "Temp Sensors Configured:\n");
     if (tempSensorsConfig.IsValid())
@@ -552,8 +650,10 @@ void ConsoleTask::ShowCurrentBoilerConfig()
     printf(_stream, "   Set Point: %3.2fC (%3.2fF)\n", temp, $CtoF(temp));
     printf(_stream, "   Hysteresis: %2.2f (%3.2f-%3.2fC %3.2f-%3.2fF)\n", hysterisis, lowTemp, highTemp, $CtoF(lowTemp), $CtoF(highTemp));
 
-    _stream.println();
-    _stream.println();
+    while (PostLineFeedCount-- > 0)
+    {
+        _stream.println();
+    }
 }
 
 void ConsoleTask::StartBoilerControl()
@@ -568,8 +668,31 @@ void ConsoleTask::EndBoilerControl()
 
 void ConsoleTask::ShowCurrentBoilerState()
 {
-    ShowCurrentBoilerConfig();
-    BoilerControllerTask::HeaterState hState = boilerControllerTask.GetHeaterState();
-    BoilerControllerTask::FaultReason fReason = boilerControllerTask.GetFaultReason();
-    printf(_stream, "Boiler State: HeaterState: %u; fReason: %u\n", hState, fReason);
+    ShowCurrentBoilerConfig(0);
+
+    printf(_stream, "Boiler State: \n    HeaterState: %s\n    fReason: %s\n    Command: %s\n",
+           BoilerControllerTask::GetHeaterStateDescription(boilerControllerTask.GetHeaterState()),
+           BoilerControllerTask::GetFaultReasonDescription(boilerControllerTask.GetFaultReason()),
+           BoilerControllerTask::GetCommandDescription(boilerControllerTask.GetCommand()));
+
+    /* get and display the: TemperatureState, TargetTemps, and TempSensorIds */
+    BoilerControllerTask::TempertureState tempState;
+    boilerControllerTask.GetTempertureState(tempState);
+    BoilerControllerTask::DisplayTemperatureState(_stream, tempState, "    ");
+
+    BoilerControllerTask::TargetTemps targetTemps;
+    boilerControllerTask.GetTargetTemps(targetTemps);
+    BoilerControllerTask::DisplayTargetTemps(_stream, targetTemps, "    ");
+
+    BoilerControllerTask::TempSensorIds tempSensorIds;
+    boilerControllerTask.GetTempSensorIds(tempSensorIds);
+    BoilerControllerTask::DisplayTempSensorIds(_stream, tempSensorIds, "    ");
+
+    printf(_stream, "    OneWireBusStats:\n");
+    BoilerControllerTask::OneWireBusStats busStats;
+    boilerControllerTask.GetOneWireBusStats(busStats);
+    BoilerControllerTask::DisplayOneWireBusStats(_stream, busStats, "        ");
+
+    _stream.println();
+    _stream.println();
 }

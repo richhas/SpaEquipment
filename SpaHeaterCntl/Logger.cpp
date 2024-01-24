@@ -54,7 +54,7 @@ void Logger::Begin(uint32_t InstanceSeq)
 
 int Logger::Printf(Logger::RecType Type, const char *Format, ...)
 {
-    char buffer[256];
+    static char buffer[256];
     va_list args;
 
     va_start(args, Format);

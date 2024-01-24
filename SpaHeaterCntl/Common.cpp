@@ -97,6 +97,7 @@ void __attribute__ ((noinline)) FailFast(char* FileName, int LineNumber)
 #endif
 */
 
+
 //* Common support functions
 int printf(Stream& ToStream, const char* Format, ...)
 {
