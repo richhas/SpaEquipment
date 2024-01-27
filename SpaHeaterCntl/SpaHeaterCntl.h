@@ -19,7 +19,6 @@ using namespace std;
 #include "Eventing.h"
 #include <WiFi.h>
 #include <WiFiS3.h>
-#include <DS18B20.h>
 #include <avr/pgmspace.h> // Include the library for code space resident strings
 
 
@@ -270,7 +269,8 @@ public:
     {
         None,
         TempSensorNotFound,
-        TempSensorReadFailed
+        TempSensorReadFailed,
+        CoProcCommError,
     };
     static constexpr const char* GetFaultReasonDescription(FaultReason reason)
     {
@@ -282,6 +282,8 @@ public:
                 return PSTR("TempSensorNotFound");
             case FaultReason::TempSensorReadFailed:
                 return PSTR("TempSensorReadFailed");
+            case FaultReason::CoProcCommError:
+                return PSTR("CoProcCommError");
             default:
                 return PSTR("Unknown");
         }
@@ -315,39 +317,15 @@ public:
     // Diagnostic performance counter for the one-wire bus
     struct OneWireBusStats
     {
-        uint32_t    _totalReadCount;
-        uint32_t    _totalReadTimeInMS;
-        uint32_t    _maxReadTimeInMS;
-        uint32_t    _minReadTimeInMS;
+        uint32_t    _totalEnumCount;
+        uint32_t    _totalEnumTimeInMS;
+        uint32_t    _maxEnumTimeInMS;
+        uint32_t    _minEnumTimeInMS;
+        uint32_t    _totalBufferOverflowErrors;
+        uint32_t    _totalFormatErrors;
+        uint32_t    _totalSensorCountOverflowErrors;
     };
-    static void DisplayOneWireBusStats(Stream& output, const OneWireBusStats& stats, const char* prependString = "")
-    {
-        printf(output, PSTR("%sTotalReadCount: %u\n"), prependString, stats._totalReadCount);
-        printf(output, PSTR("%sTotalReadTimeInMS: %u\n"), prependString, stats._totalReadTimeInMS);
-        printf(output, PSTR("%sAvgReadTimeInMS: %u\n"), prependString, stats._totalReadTimeInMS / stats._totalReadCount);
-        printf(output, PSTR("%sMaxReadTimeInMS: %u\n"), prependString, stats._maxReadTimeInMS);
-        printf(output, PSTR("%sMinReadTimeInMS: %u\n"), prependString, stats._minReadTimeInMS);
-    }
-
-    void ClearOneWireBusStats() 
-    { 
-        { CriticalSection cs; 
-            _oneWireStats = 
-            { 
-                ._totalReadCount = 0, 
-                ._totalReadTimeInMS = 0, 
-                ._maxReadTimeInMS = 0, 
-                ._minReadTimeInMS = 0xFFFFFFFF
-            };
-        }
-    }
-
-    void GetOneWireBusStats(OneWireBusStats& Stats)
-    {
-        { CriticalSection cs;
-            Stats = _oneWireStats;
-        }
-    }
+    static void DisplayOneWireBusStats(Stream& output, const OneWireBusStats& stats, const char* prependString = "");
 
 public:
     BoilerControllerTask();
@@ -371,7 +349,19 @@ public:
     inline Command GetCommand() { return SnapshotCommand(); }
     inline void GetTempSensorIds(TempSensorIds& SensorIds) { SnapshotTempSensors(SensorIds); }
 
+    void ClearOneWireBusStats();
+    void GetOneWireBusStats(OneWireBusStats& Stats);
+
+
     static void BoilerControllerThreadEntry(void *pvParameters);
+
+private:
+    friend void setup();
+    struct DiscoveredTempSensor
+    {
+        uint64_t _id;
+        float _temp;
+    };    
 
 private:
     void SnapshotTempSensors(TempSensorIds& SensorIds);
@@ -381,9 +371,7 @@ private:
     void SafeSetFaultReason(FaultReason Reason);
     void SafeSetHeaterState(HeaterState State);
     void SafeClearCommand();
-
-    bool ReadTemp(uint64_t SensorId, float& Temp);      // Returns true if the sensor is valid and the temperature was read
-                                                        // else returns false and sets _faultReason to indicate the fault
+    bool OneWireCoProcEnumLoop(array<DiscoveredTempSensor, 5>*& Results, uint8_t& ResultsSize);
 
     virtual void setup() override final;
     virtual void loop() override final;
@@ -391,8 +379,6 @@ private:
 private:
     static constexpr uint8_t    _heaterControlPin = 4;
     static constexpr uint8_t    _heaterActiveLedPin = 13;
-    static constexpr uint8_t    _oneWireBusPin = 2;
-    DS18B20                     _ds;
     vector<uint64_t>            _sensors;
     TempSensorIds               _sensorIds; 
     HeaterState                 _state;
@@ -430,7 +416,6 @@ private:
     Stream&     _out;
     uint32_t    _logSeq;
     uint32_t    _instanceSeq;
-    SemaphoreHandle_t _lock;
 };
 
 //* System Instance Record - In persistant storage

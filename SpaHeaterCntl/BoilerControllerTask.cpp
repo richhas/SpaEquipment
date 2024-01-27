@@ -36,11 +36,18 @@
 void BoilerControllerTask::BoilerControllerThreadEntry(void *pvParameters)
 {
     boilerControllerTask.setup();
+
+    static Timer ledTimer(1000);
     while (true)
     {
         boilerControllerTask.loop();
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        digitalWrite(_heaterActiveLedPin, !digitalRead(_heaterActiveLedPin));
+        vTaskDelay(pdMS_TO_TICKS(50));
+
+        if (ledTimer.IsAlarmed())
+        {
+            ledTimer.SetAlarm(1000);
+            digitalWrite(_heaterActiveLedPin, !digitalRead(_heaterActiveLedPin));
+        }
     }
 }
 
@@ -68,93 +75,25 @@ void BoilerControllerTask::setup()
 
     ClearOneWireBusStats();
 
-    // discover the temperature sensors on the one wire bus for use be forgraound task (e.g. configures the sensors)
+    // discover the temperature sensors on the one wire bus for use by forground task (e.g. configures the sensors)
     logger.Printf(Logger::RecType::Info, "BoilerControllerTask: Start bus enumeration\n");
-    while (_ds.selectNext())
+    
+    array<DiscoveredTempSensor, 5>* results;
+    uint8_t resultsSize;
+
+    while (!OneWireCoProcEnumLoop(results, resultsSize));
+
+    for (int ix = 0; ix < resultsSize; ix++)
     {
-        uint8_t addr[8];
+        logger.Printf(Logger::RecType::Info, "BoilerControllerTask: OneWireCoProcEnumLoop: Sensor ID: %" $PRIX64 "\n", 
+                                             To$PRIX64(results->at(ix)._id));
 
-        _ds.getAddress(addr);
-        Serial.print("Address:");
-        for (uint8_t i = 0; i < 8; i++)
-        {
-            Serial.print(" ");
-            Serial.print(addr[i]);
-        }
-        printf(Serial, " -- (%" $PRIX64 ")", To$PRIX64(*((uint64_t *)(&addr[0]))));
-        Serial.println();
-
-        _sensors.push_back(*((uint64_t *)(&addr[0])));
+        _sensors.push_back(results->at(ix)._id);
     }
     logger.Printf(Logger::RecType::Info, "BoilerControllerTask: Start bus enumeration - COMPLETE\n");
 }
 
-/*
- * The `loop` method is part of the `BoilerControllerTask` class, which controls a spa heater.
- *
- * The method starts by checking for commands from the foreground task. It then enters a switch statement
- * that handles different heater states: Halted, Running, and Faulted.
- *
- * In the Halted state, the heater is turned off. If a Start command is received, the heater state is changed to Running.
- *
- * In the Running state, the method handles reading temperatures from sensors and controlling the heater.
- * If a Stop command is received, the heater is turned off and the state is changed back to Halted.
- *
- * The first time the heater enters the Running state, it snapshots the current state of temperature sensors,
- * target temperatures, and temperature state. If the target temperatures are different from the current ones,
- * they are updated. The method then starts reading temperatures immediately.
- *
- * Inside the Running state, there is a nested state machine with two states: ReadTemps and ControlHeater.
- *
- * In the ReadTemps state, the method reads temperatures from the ambient, boiler in, and boiler out sensors.
- * If reading from the boiler in sensor fails, the heater is turned off, the state is changed to Faulted,
- * and a critical error message is logged. If reading from the boiler out or ambient sensor fails, a warning message is logged.
- *
- * If the temperatures have changed, they are updated in the local copy and the foreground task is notified.
- * The method then sets an alarm to read temperatures again in 4 seconds and changes the state to ControlHeater.
- *
- * In the ControlHeater state, the method computes the hard on and off temperature limits.
- * If the boiler in temperature is above the hard off limit, the heater is turned off.
- * If the boiler in temperature is below the hard on limit, the heater is turned on.
- * If the heater state has changed, it is updated in the local copy and the foreground task is notified.
- * If the alarm set in the ReadTemps state goes off, the state is changed back to ReadTemps.
- *
- * In the Faulted state, if a Reset command is received, the heater is turned off and the state is changed back to Halted.
- *
- * The purpose of this method is to manage the different states of the boiler heater system, as such:
- *
- * The implementation is a state machine design in for a boiler controller task.
- * The state machine is used to manage the different states of a boiler heater system.
- * The states include Halted, Running, and Faulted:
- *
- *      Halted:     This is the initial state of the heater. In this state, the heater is turned off.
- *                  If a Start command is received, the heater state is changed to Running.
- *
- *      Running:    In this state, the heater is active. The system checks for a Stop command.
- *                  If received, the heater is turned off and the state is changed back to Halted.
- *                  If not, the system enters a nested state machine with two states: ReadTemps and ControlHeater.
- *
- *          ReadTemps:     In this sub-state, the system reads temperatures from the ambient, boiler in,
- *                         and boiler out sensors. If the boiler in sensor fails to read, the heater is turned off,
- *                         the state is changed to Faulted, and a critical error message is logged.
- *                         If the boiler out or ambient sensor fails to read, a warning message is logged.
- *                         If the temperatures have changed, they are updated in the local copy and the foreground task is notified.
- *                         The system then sets an alarm to read temperatures again in 4 seconds and changes the state to ControlHeater.
- *
- *          ControlHeater: In this state, the system computes the hard on and off temperature limits.
- *                         If the boiler in temperature is above the hard off limit, the heater is turned off.
- *                         If the boiler in temperature is below the hard on limit, the heater is turned on.
- *                         If the heater state has changed, it is updated in the local copy and the foreground task is notified.
- *                         If the alarm set in the ReadTemps state goes off, the state is changed back to ReadTemps.
- *
- *      Faulted:    This state is entered when a critical error occurs, such as failing to read the boiler in temperature.
- *                  In this state, the heater is turned off. If a Reset command is received, the error is cleared and the
- *                  state is changed back to Halted.
- *
- * The purpose of this state machine design is to manage the different states of the boiler heater system,
- * handle transitions between states, and perform the appropriate actions based on the current state and incoming commands.
- * This design makes the code more organized, easier to understand, and easier to maintain.
- */
+
 void BoilerControllerTask::loop()
 {
     static bool firstTimeInRunningState = true;
@@ -184,189 +123,260 @@ void BoilerControllerTask::loop()
         tempState._hysteresis = targetTemps._hysteresis;
     }
 
+    //* Main state machine for the BoilerControllerTask
     switch (_state)
     {
-    case HeaterState::Halted:
-    {
-        digitalWrite(_heaterControlPin, false); // Make sure the heater is turned off
-
-        if (command == Command::Start)
+        case HeaterState::Halted:
         {
-            firstTimeInRunningState = true;
-            SafeClearCommand();                       // acknowledge the command
-            SafeSetHeaterState(HeaterState::Running); // Go to the Running state
-        }
-    }
-    break;
+            digitalWrite(_heaterControlPin, false); // Make sure the heater is turned off
 
-    case HeaterState::Running:
-    {
-        enum class State
-        {
-            ReadTemps,
-            ControlHeater,
-        };
-
-        static State state;
-        static Timer nextReadTimer;
-
-        if (command == Command::Stop)
-        {
-            // The forground task has requested that we stop
-            SafeClearCommand();                      // acknowledge the command
-            SafeSetHeaterState(HeaterState::Halted); // Go back to the Halted state
-            digitalWrite(_heaterControlPin, false);  // Make sure the heater is turned off
-            return;
-        }
-
-        if (firstTimeInRunningState)
-        {
-            firstTimeInRunningState = false;
-
-            // First time in the Running state - initialize our inner state machine
-            nextReadTimer.SetAlarm(0); // Read temps immediately
-            state = State::ReadTemps;  // Start by reading the temps
-        }
-
-        switch (state)
-        {
-        case State::ReadTemps:
-        {
-            float ambiantTemp = tempState._ambiantTemp;
-            float boilerInTemp = tempState._boilerInTemp;
-            float boilerOutTemp = tempState._boilerOutTemp;
-
-            static uint8_t sensorIndexToRead = 0;
-
-            bool ambiantTempRead = true;
-            bool boilerInTempRead = true;
-            bool boilerOutTempRead = true;
-
-            // Read the temps from the sensors in a round robin fashion
-            switch (sensorIndexToRead)
+            if (command == Command::Start)
             {
-            case 0:
-                ambiantTempRead = ReadTemp(sensors._ambiantTempSensorId, ambiantTemp);
-                break;
-            
-            case 1:
-                boilerInTempRead = ReadTemp(sensors._boilerInTempSensorId, boilerInTemp);
-                break;
-
-            case 2:
-                boilerOutTempRead = ReadTemp(sensors._boilerOutTempSensorId, boilerOutTemp);
-                break;
+                firstTimeInRunningState = true;
+                SafeClearCommand();                       // acknowledge the command
+                SafeSetHeaterState(HeaterState::Running); // Go to the Running state
+                logger.Printf(Logger::RecType::Info, "BoilerControllerTask: HeaterState::Halted: Command::Start\n");
             }
-
-            sensorIndexToRead = (sensorIndexToRead + 1) % 3;
-
-            if (!boilerInTempRead)
-            {
-                SafeSetFaultReason(FaultReason::TempSensorReadFailed);
-                digitalWrite(_heaterControlPin, false);   // Make sure the heater is turned off
-                SafeSetHeaterState(HeaterState::Faulted); // Go to the Faulted state
-
-                logger.Printf(Logger::RecType::Critical, "BoilerControllerTask: Failed to read boiler in temp sensor\n");
-                return;
-            }
-
-            if (!boilerOutTempRead)
-            {
-                logger.Printf(Logger::RecType::Warning, "BoilerControllerTask: Failed to read boiler out temp sensor\n");
-            }
-
-            if (!ambiantTempRead)
-            {
-                logger.Printf(Logger::RecType::Warning, "BoilerControllerTask: Failed to read ambiant temp sensor\n");
-            }
-
-            if (ambiantTemp != tempState._ambiantTemp ||
-                boilerInTemp != tempState._boilerInTemp ||
-                boilerOutTemp != tempState._boilerOutTemp)
-
-            { CriticalSection cs;
-                // The temps have changed - update the shared state for the foreground task's access
-                _tempState._sequence++; // Increment the sequence number so foreground task knows the temps have changed
-                _tempState._ambiantTemp = ambiantTemp;
-                _tempState._boilerInTemp = boilerInTemp;
-                _tempState._boilerOutTemp = boilerOutTemp;
-                _tempState._setPoint = targetTemps._setPoint;
-                _tempState._hysteresis = targetTemps._hysteresis;
-                _tempState._heaterOn = digitalRead(_heaterControlPin);
-            }
-
-            // Keep out local copy of the temps up to date
-            tempState._ambiantTemp = ambiantTemp;
-            tempState._boilerInTemp = boilerInTemp;
-            tempState._boilerOutTemp = boilerOutTemp;
-
-            nextReadTimer.SetAlarm(1333);   // Cause all sensors to be read again in 4 seconds
-            state = State::ControlHeater;
         }
         break;
 
-        case State::ControlHeater:
+        case HeaterState::Running:
         {
-            // Compute the hard on and off temperature limits
-            float const hardOffTemp = tempState._setPoint + tempState._hysteresis;
-            float const hardOnTemp = tempState._setPoint - tempState._hysteresis;
-
-            if (tempState._boilerInTemp > hardOffTemp)
+            enum class State
             {
-                // The boiler in temp is above the hard off limit - turn off the heater
-                digitalWrite(_heaterControlPin, false);
+                StartCycle,
+                ControlHeater,
+            };
+            static State state;     // Current state of the (inner) Running state machine
+
+            static Timer coEnumTimeoutTimer;                                    // Alarms if the co-processor enumeration takes too long - Faults the system
+            static Timer boilerInTempReadTimeoutTimer;                          // Alarms if the boiler in temp sensor read takes too long - Faults the system
+            static Timer boilerOutTempReadTimeoutTimer;                         // Alarms if the boiler out temp sensor read takes too long - Logs a warning
+            static Timer ambiantTempReadTimeoutTimer;                           // Alarms if the ambiant temp sensor read takes too long - Logs a warning
+            static constexpr uint32_t coEnumTimeoutInMS = 3 * 1000 * 60;        // 3 minutes      - Faults the system
+            static constexpr uint32_t boilerInTempReadTimeoutInMS = 10 * 1000;  // 10 seconds     - Faults the system
+            static constexpr uint32_t boilerOutTempReadTimeoutInMS = 10 * 1000; // 10 seconds
+            static constexpr uint32_t ambiantTempReadTimeoutInMS = 10 * 1000;   // 10 seconds
+            static uint32_t startOfEnumTimeInMS;                                // Time in MS when the enumeration started
+            static bool haveReadTempsAtLeastOnce;                               // True if we have read the temps at least once in a cycle
+
+            if (command == Command::Stop)
+            {
+                // The forground task has requested that we stop
+                SafeClearCommand();                      // acknowledge the command
+                SafeSetHeaterState(HeaterState::Halted); // Go back to the Halted state
+                digitalWrite(_heaterControlPin, false);  // Make sure the heater is turned off
+                return;
             }
-            else if (tempState._boilerInTemp < hardOnTemp)
+
+            if (firstTimeInRunningState)
             {
-                // The boiler in temp is below the hard on limit - turn on the heater
-                digitalWrite(_heaterControlPin, true);
+                //printf(Serial, "BoilerControllerTask: Running: firstTime logic\n");
+                firstTimeInRunningState = false;
+
+                // First time in the Running state - initialize our inner state machine
+                state = State::StartCycle;
             }
 
-            if (digitalRead(_heaterControlPin) != tempState._heaterOn)
+            // Inner state machine for the Running state
+            switch (state)
             {
-                // The heater state has changed - update our local copy
-                tempState._heaterOn = digitalRead(_heaterControlPin);
+                case State::StartCycle:
+                {
+                    //printf(Serial, "BoilerControllerTask: Running: StartCycle; Changing to ControlHeater\n");
+                    logger.Printf(Logger::RecType::Info, "BoilerControllerTask: HeaterState::Running:\n");
 
-                { CriticalSection cs;
-                    // Update the temp state for the foreground task's access
-                    _tempState._sequence++; // Increment the sequence number so foreground task knows the heater state has changed
-                    _tempState._heaterOn = tempState._heaterOn;
+                    // Start of the Running cycle
+                    coEnumTimeoutTimer.SetAlarm(coEnumTimeoutInMS);
+                    boilerInTempReadTimeoutTimer.SetAlarm(boilerInTempReadTimeoutInMS);
+                    boilerOutTempReadTimeoutTimer.SetAlarm(boilerOutTempReadTimeoutInMS);
+                    ambiantTempReadTimeoutTimer.SetAlarm(ambiantTempReadTimeoutInMS);
+                    startOfEnumTimeInMS = millis();   // Capture the start time of the enumeration cycle
+
+                    haveReadTempsAtLeastOnce = false;
+                    state = State::ControlHeater;
+                }
+                break;
+
+                case State::ControlHeater:
+                {
+                    // Default current temps to the last known temps
+                    float ambiantTemp = tempState._ambiantTemp;
+                    float boilerInTemp = tempState._boilerInTemp;
+                    float boilerOutTemp = tempState._boilerOutTemp;
+
+                    // First we try and absord an enum from the co-processor
+                    array<DiscoveredTempSensor, 5>* results;
+                    uint8_t resultsSize;
+
+                    if (OneWireCoProcEnumLoop(results, resultsSize))
+                    {
+                        // We have a completed CoProc enumeration - reconcile the results with our configured sensors; capture the temps as found
+                        haveReadTempsAtLeastOnce = true;
+
+                        // Compute the duration of the enumeration cycle and update the shared stats
+                        uint32_t durationInMS = millis() - startOfEnumTimeInMS; // Compute the duration of the enumeration cycle
+                        { CriticalSection cs;
+                            _oneWireStats._totalEnumCount++;
+                            _oneWireStats._totalEnumTimeInMS += durationInMS;
+                            if (durationInMS > _oneWireStats._maxEnumTimeInMS)
+                                _oneWireStats._maxEnumTimeInMS = durationInMS;
+                            if (durationInMS < _oneWireStats._minEnumTimeInMS)
+                                _oneWireStats._minEnumTimeInMS = durationInMS;
+                        }
+
+                        coEnumTimeoutTimer.SetAlarm(coEnumTimeoutInMS);     // Reset the timeout timer for the next enumeration cycle
+                        startOfEnumTimeInMS = millis();                     // Capture the start time of this next enumeration cycle
+
+                        // for each sensor we have in sensors (our configured set) we need to find if there is a matching sensor in results. 
+                        // If so, we need to: 1) update that sensor's last known temps (above), and 2) reset that sensor's timeout timer. 
+                        for (int ix = 0; ix < resultsSize; ix++)
+                        {
+                            if (results->at(ix)._id == sensors._ambiantTempSensorId)
+                            {
+                                ambiantTemp = results->at(ix)._temp;
+                                ambiantTempReadTimeoutTimer.SetAlarm(ambiantTempReadTimeoutInMS);
+                            }
+                            else if (results->at(ix)._id == sensors._boilerInTempSensorId)
+                            {
+                                boilerInTemp = results->at(ix)._temp;
+                                boilerInTempReadTimeoutTimer.SetAlarm(boilerInTempReadTimeoutInMS);
+                            }
+                            else if (results->at(ix)._id == sensors._boilerOutTempSensorId)
+                            {
+                                boilerOutTemp = results->at(ix)._temp;
+                                boilerOutTempReadTimeoutTimer.SetAlarm(boilerOutTempReadTimeoutInMS);
+                            }
+                            else
+                            {
+                                // This is a sensor we don't know about - log a warning
+                                logger.Printf(Logger::RecType::Warning, "BoilerControllerTask: OneWireCoProcEnumLoop: Unknown sensor ID: %" $PRIX64 "\n", 
+                                             To$PRIX64(results->at(ix)._id));
+                            }
+                        }
+                    }
+
+                    // Detect any coProc and/or sensors realted timeouts and fault the system if necessary; log accordingly
+                    if (coEnumTimeoutTimer.IsAlarmed())
+                    {
+                        // The co-processor enumeration has taken too long - fault the system
+                        digitalWrite(_heaterControlPin, false); // Make sure the heater is turned off
+                        SafeSetFaultReason(FaultReason::CoProcCommError);
+
+                        //printf(Serial, "BoilerControllerTask: OneWireCoProcEnumLoop: CoProc Timeout\n");
+                        SafeSetHeaterState(HeaterState::Faulted); // Go to the Faulted state
+                        return;
+                    }
+
+                    if (boilerInTempReadTimeoutTimer.IsAlarmed())
+                    {
+                        // The boiler in temp sensor read has taken too long - fault the system
+                        digitalWrite(_heaterControlPin, false); // Make sure the heater is turned off
+                        SafeSetFaultReason(FaultReason::TempSensorReadFailed);
+
+                        //printf(Serial, "BoilerControllerTask: BoilerInTempReadTimeoutTimer: Timeout\n");
+                        SafeSetHeaterState(HeaterState::Faulted); // Go to the Faulted state
+                        return;
+                    }
+
+                    if (boilerOutTempReadTimeoutTimer.IsAlarmed())
+                    {
+                        // The boiler out temp sensor read has taken too long - log a warning
+                        //printf(Serial, "BoilerControllerTask: BoilerOutTempReadTimeoutTimer: Timeout\n");
+                    }
+
+                    if (ambiantTempReadTimeoutTimer.IsAlarmed())
+                    {
+                        // The ambiant temp sensor read has taken too long - log a warning
+                        //printf(Serial, "BoilerControllerTask: AmbiantTempReadTimeoutTimer: Timeout\n");
+                    }
+
+                    // Check for any changes in the temps or heater status and update the shared state if necessary
+                    if (ambiantTemp != tempState._ambiantTemp || boilerInTemp != tempState._boilerInTemp || boilerOutTemp != tempState._boilerOutTemp)
+                    { CriticalSection cs;
+                        // The temps have changed - update the shared state for the foreground task's access
+                        _tempState._sequence++; // Increment the sequence number so foreground task knows the temps have changed
+                        _tempState._ambiantTemp = ambiantTemp;
+                        _tempState._boilerInTemp = boilerInTemp;
+                        _tempState._boilerOutTemp = boilerOutTemp;
+                        _tempState._setPoint = targetTemps._setPoint;
+                        _tempState._hysteresis = targetTemps._hysteresis;
+                        _tempState._heaterOn = digitalRead(_heaterControlPin);
+                    }
+
+                    // Keep our local copy of the temps up to date
+                    tempState._ambiantTemp = ambiantTemp;
+                    tempState._boilerInTemp = boilerInTemp;
+                    tempState._boilerOutTemp = boilerOutTemp;
+
+                    if (!haveReadTempsAtLeastOnce)
+                    {
+                        digitalWrite(_heaterControlPin, false); // Make sure the heater is turned off until we have read the temps at least once
+                    }
+                    else
+                    {
+                        // Don't allow the following to happen until the temps have been read at least once; specifically in boilerInTemp
+
+                        // Now assert control over the heater based on current know temps
+                        // Compute the hard on and off temperature limits
+                        float const hardOffTemp = tempState._setPoint + tempState._hysteresis;
+                        float const hardOnTemp = tempState._setPoint - tempState._hysteresis;
+
+                        if (tempState._boilerInTemp > hardOffTemp)
+                        {
+                            // The boiler in temp is above the hard off limit - turn off the heater
+                            digitalWrite(_heaterControlPin, false);
+                        }
+                        else if (tempState._boilerInTemp < hardOnTemp)
+                        {
+                            // The boiler in temp is below the hard on limit - turn on the heater
+                            digitalWrite(_heaterControlPin, true);
+                        }
+                    }
+
+                    // Check for any changes in the heater status and update the shared state if necessary
+                    if (digitalRead(_heaterControlPin) != tempState._heaterOn)
+                    {
+                        // The heater state has changed - update our local copy
+                        tempState._heaterOn = digitalRead(_heaterControlPin);
+
+                        { CriticalSection cs;
+                            // Update the temp state for the foreground task's access
+                            _tempState._sequence++; // Increment the sequence number so foreground task knows the heater state has changed
+                            _tempState._heaterOn = tempState._heaterOn;
+                        }
+                    }
+                }
+                break;
+
+                default:
+                {
+                    $FailFast();
                 }
             }
+        }
+        break;
 
-            if (nextReadTimer.IsAlarmed())
+        case HeaterState::Faulted:
+        {
+            digitalWrite(_heaterControlPin, false); // Make sure the heater is turned off
+            if (command == Command::Reset)
             {
-                // Time to read the temps again
-                state = State::ReadTemps;
+                SafeClearCommand();                      // acknowledge the command
+                SafeSetHeaterState(HeaterState::Halted); // Go back to the Halted state
             }
         }
         break;
 
         default:
+        {
             $FailFast();
         }
-    }
-    break;
-
-    case HeaterState::Faulted:
-    {
-        digitalWrite(_heaterControlPin, false); // Make sure the heater is turned off
-        if (command == Command::Reset)
-        {
-            SafeClearCommand();                      // acknowledge the command
-            SafeSetHeaterState(HeaterState::Halted); // Go back to the Halted state
-        }
-    }
-    break;
-
-    default:
-        break;
     }
 }
 
 //** BoilerControllerTask constructor and destructor
 BoilerControllerTask::BoilerControllerTask()
-    : _ds(_oneWireBusPin)
 {
 }
 
@@ -375,32 +385,206 @@ BoilerControllerTask::~BoilerControllerTask()
     $FailFast();
 }
 
-// Support for reading temperatures from the sensors
-bool BoilerControllerTask::ReadTemp(uint64_t SensorId, float &Temp)
+// Support for reading temperatures from the sensors - this is done via the OneWireCoProc attached to Serial1
+/**
+ * @brief Performs the enumeration for a co-processor connected via OneWire protocol.
+ * 
+ * @param[out] Results Pointer to an array of DiscoveredTempSensor objects to store the enumeration results.
+ * @param[out] ResultsSize Reference to an integer to store the size of the enumeration results.
+ * @return true if the co-processor loop has completed the enumeration cycle, 
+ *         false if it is still enumerating - keep calling.
+ */
+bool BoilerControllerTask::OneWireCoProcEnumLoop(array<DiscoveredTempSensor, 5>*& Results, uint8_t& ResultsSize) 
 {
-    auto startTime = millis();
-    if (!_ds.select((uint8_t *)(&SensorId)))
+    static bool firstTime = true;
+    enum class State
     {
-        SafeSetFaultReason(FaultReason::TempSensorNotFound);
-        return false;
+        StartCycle,     // Start of the enumeration cycle
+        HuntForEnum,    // Hunt for the start of the enumeration
+        Enumerate,      // Enumerate the sensors
+    };
+    static State state;
+
+    static array<DiscoveredTempSensor, 5> sensors;  // Max of 5 sensors
+    static uint8_t      sensorIndex;
+    static char         buffer[33];
+    static uint8_t      bufferIndex;
+
+    if (firstTime)
+    {
+        // Start of the enumeration cycle
+        firstTime = false;
+        Serial1.begin(9600);
+        Serial1.setTimeout(0);                  // Just a polled environment - don't wait for anything
+        state = State::StartCycle;
     }
 
-    Temp = _ds.getTempC();
-    auto endTime = millis();
-    auto elapsed = endTime - startTime;
+    Results = nullptr;
+    ResultsSize = 0;
 
-    { CriticalSection cs;
-        _oneWireStats._totalReadCount++;
-        _oneWireStats._totalReadTimeInMS += elapsed;
-        if (elapsed > _oneWireStats._maxReadTimeInMS)
-            _oneWireStats._maxReadTimeInMS = elapsed;
-        if (elapsed < _oneWireStats._minReadTimeInMS)
-            _oneWireStats._minReadTimeInMS = elapsed;
+    switch (state)
+    {
+        case State::StartCycle:
+        {
+            bufferIndex = 0;
+            sensorIndex = 0;
+
+            {   // Drain any data in the serial buffer
+                byte        tossBuffer[32];
+
+                while (Serial1.readBytes(tossBuffer, sizeof(tossBuffer)) > 0) {}
+            }
+
+            state = State::HuntForEnum;
+            return false;
+        }
+        break;
+
+        case State::HuntForEnum:
+        {
+            while (Serial1.available())
+            {
+                char c = Serial1.read();
+                if (c == '\n')                  // just drop the '\n' and wait for the '\r'
+                    return false;
+
+                if (c == '\r')
+                {
+                    // End of line - check for the start of the enumeration
+                    buffer[bufferIndex] = 0;
+                    if ((bufferIndex == 6) && (memcmp(buffer, "ESTART", 6) == 0))
+                    {
+                        // Start of the enumeration
+                        sensorIndex = 0;
+                        bufferIndex = 0;
+                        state = State::Enumerate;
+                        return false;
+                    }
+                    else
+                    {
+                        // Not the start of the enumeration - start over
+                        bufferIndex = 0;
+                        return false;
+                    }
+                }
+                else
+                {
+                    // accumulate the character in the buffer as long as there is room
+                    if (bufferIndex < (sizeof(buffer) - 1))
+                    {
+                        buffer[bufferIndex++] = c;
+                    }
+                    else
+                    {
+                        // Buffer overflow - start over
+                        { CriticalSection cs;
+                            _oneWireStats._totalBufferOverflowErrors++;
+                        }
+                        state = State::StartCycle;
+                        return false;
+                    }
+                }
+            }
+        }
+        break;
+
+        case State::Enumerate:
+        {
+            while (Serial1.available())
+            {
+                char c = Serial1.read();
+                if (c == '\n') // just drop the '\n' and wait for the '\r'
+                    return false;
+
+                if (c == '\r')
+                {
+                    // End of line - check for the start of the enumeration
+                    buffer[bufferIndex] = 0;
+                    if ((bufferIndex == 5) && (memcmp(buffer, "ESTOP", 5) == 0))
+                    {
+                        // End of the enumeration
+                        Results = &sensors;
+                        ResultsSize = sensorIndex;
+                        
+                        state = State::StartCycle;
+                        return true;
+                    }
+                    else
+                    {
+                        // Determine if the received line is a valid sensor state description
+                        // Valid format: IIIIIIIIIIIIIIII;MM;RR;T<\0>
+                        //               012345678901234567890123456789
+                        // Where: IIIIIIIIIIIIIIII is the 64 bit sensor ID - in HEX Ascii
+                        //        MM is the sensor model type - in HEX Ascii
+                        //        RR is the sensor resolution - in HEX Ascii
+                        //        T is the temperature - in floating point Ascii at least 1 char (i.e. '0')
+
+                        // Check for the correct length and basic format
+                        if ((bufferIndex < 24)  || (buffer[16] != ';') || (buffer[19] != ';') || (buffer[22] != ';'))
+                        {
+                            // Invalid format - start over
+                            { CriticalSection cs;
+                                _oneWireStats._totalFormatErrors++;
+                            }
+                            state = State::StartCycle;
+                            return false;
+                        }
+
+                        if (sensorIndex < (sensors.size() - 1))
+                        {
+                            // There is room for another sensor - increment the index and get ready for the next line
+                            // Extract all the fields for sensors[sensorIndex] from the validated buffer; last field is the temperature
+                            // and is variable length
+                            $Assert(sensorIndex < 3);
+                            sensors[sensorIndex]._id = strtoull(&buffer[0], NULL, 16);
+                            sensors[sensorIndex]._temp = strtod(&buffer[23], NULL);
+
+                            sensorIndex++;
+                            bufferIndex = 0;
+                            state = State::Enumerate;
+                            return false;
+                        }
+                        else
+                        {
+                            // No more room for another sensor - start over
+                            { CriticalSection cs;
+                                _oneWireStats._totalSensorCountOverflowErrors++;
+                            }
+                            state = State::StartCycle;
+                        }
+                        return false;
+                    }
+                }
+                else
+                {
+                    // accumulate the character in the buffer as long as there is room
+                    if (bufferIndex < (sizeof(buffer) - 1))
+                    {
+                        buffer[bufferIndex++] = c;
+                    }
+                    else
+                    {
+                        // Buffer overflow - start over
+                        { CriticalSection cs;
+                            _oneWireStats._totalBufferOverflowErrors++;
+                        }
+                        state = State::StartCycle;
+                        return false;
+                    }
+                }
+            }
+        }
+        break;
+
+        default:
+        {
+            $FailFast();
+        }
     }
 
-
-    return true;
+    return false;
 }
+
 
 //** Getters and setters for the various parameters - these methods are thread safe
 BoilerControllerTask::FaultReason BoilerControllerTask::GetFaultReason()
@@ -448,6 +632,13 @@ void BoilerControllerTask::GetTempertureState(TempertureState& State)
     CriticalSection cs;
     {
         State = _tempState;
+    }
+}
+
+void BoilerControllerTask::GetOneWireBusStats(OneWireBusStats& Stats)
+{
+    { CriticalSection cs;
+        Stats = _oneWireStats;
     }
 }
 
@@ -506,6 +697,24 @@ void BoilerControllerTask::SafeClearCommand()
         _command = Command::Idle;
     }
 }
+
+void BoilerControllerTask::ClearOneWireBusStats() 
+{ 
+    { CriticalSection cs; 
+        _oneWireStats = 
+        { 
+            ._totalEnumCount = 0, 
+            ._totalEnumTimeInMS = 0, 
+            ._maxEnumTimeInMS = 0, 
+            ._minEnumTimeInMS = 0xFFFFFFFF,
+            ._totalBufferOverflowErrors = 0,
+            ._totalFormatErrors = 0,
+            ._totalSensorCountOverflowErrors = 0
+        };
+    }
+}
+
+
 
 //** Forground task command interface methods - these methods are thread safe
 bool BoilerControllerTask::IsBusy()         // Returns true if the task is busy processing a command
@@ -573,3 +782,16 @@ void BoilerControllerTask::DisplayTargetTemps(Stream &output, const TargetTemps 
     printf(output, "%s    Set Point: %.2fC (%.2fF)\n", prependString, temps._setPoint, $CtoF(temps._setPoint));
     printf(output, "%s    Hysteresis: %.2f\n", prependString, temps._hysteresis);
 }
+
+void BoilerControllerTask::DisplayOneWireBusStats(Stream& output, const OneWireBusStats& stats, const char* prependString)
+{
+    printf(output, PSTR("%sTotalEnumCount: %u\n"), prependString, stats._totalEnumCount);
+    printf(output, PSTR("%sTotalEnumTimeInMS: %u\n"), prependString, stats._totalEnumTimeInMS);
+    printf(output, PSTR("%sAvgEnumTimeInMS: %u\n"), prependString, stats._totalEnumTimeInMS / stats._totalEnumCount);
+    printf(output, PSTR("%sMaxEnumTimeInMS: %u\n"), prependString, stats._maxEnumTimeInMS);
+    printf(output, PSTR("%sMinEnumTimeInMS: %u\n"), prependString, stats._minEnumTimeInMS);
+    printf(output, PSTR("%sTotalBufferOverflowErrors: %u\n"), prependString, stats._totalBufferOverflowErrors);
+    printf(output, PSTR("%sTotalFormatErrors: %u\n"), prependString, stats._totalFormatErrors);
+    printf(output, PSTR("%sTotalSensorCountOverflowErrors: %u\n"), prependString, stats._totalSensorCountOverflowErrors);
+}
+

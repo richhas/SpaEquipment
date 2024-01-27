@@ -26,6 +26,7 @@ public:
         uint32_t now = millis();
         return ((millis() >= _alarmTime) ? 0 : (_alarmTime - now));
     }
+
 private:
     uint32_t    _alarmTime;         // msecs
 };

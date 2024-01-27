@@ -99,16 +99,22 @@ void __attribute__ ((noinline)) FailFast(char* FileName, int LineNumber)
 
 
 //* Common support functions
-int printf(Stream& ToStream, const char* Format, ...)
+SharedBuffer<256> sharedPrintfBuffer;
+
+int printf(Stream &ToStream, const char *Format, ...)
 {
-    static char    buffer[256];
+    int size;
     va_list args;
 
     va_start(args, Format);
-    int size = vsnprintf(&buffer[0], sizeof(buffer), Format, args);
-    ToStream.print(&buffer[0]);
+    {  // take exclusive access to sharedPrintfBuffer - note: dtor of handle releases the lock
+        auto handle = sharedPrintfBuffer.GetHandle();
+        char* buffer = (char*)handle.GetBuffer();
+
+        size = vsnprintf(buffer, handle.GetSize(), Format, args);
+        ToStream.print(buffer);
+    }
     va_end(args);
 
     return size;
 }
-
