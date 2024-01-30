@@ -107,7 +107,7 @@ int printf(Stream &ToStream, const char *Format, ...)
     va_list args;
 
     va_start(args, Format);
-    {  // take exclusive access to sharedPrintfBuffer - note: dtor of handle releases the lock
+    {   // take exclusive access to sharedPrintfBuffer - note: dtor of handle releases the lock
         auto handle = sharedPrintfBuffer.GetHandle();
         char* buffer = (char*)handle.GetBuffer();
 

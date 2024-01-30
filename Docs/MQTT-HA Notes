@@ -1,0 +1,147 @@
+homeassistant/water_heater/boiler/config
+
+{
+  "name": "boiler",
+  "modes": [
+    "off",
+    "eco",
+    "performance"
+    ],
+
+  "availability_topic" : "homeassistant/water_heater/boiler/avail",
+  "availability_template" : "{{ value_json }}",
+  "mode_state_topic": "homeassistant/water_heater/boiler/mode",
+  "mode_state_template" : "{{ value_json }}",
+  "mode_command_topic": "homeassistant/water_heater/boiler/mode/set",
+  "temperature_state_topic": "homeassistant/water_heater/boiler/temperature",
+  "temperature_command_topic": "homeassistant/water_heater/boiler/temperature/set",
+  "current_temperature_topic": "homeassistant/water_heater/boiler/current_temperature",
+  "power_command_topic" : "homeassistant/water_heater/boiler/power/set",
+  "max_temp" : "160",
+  "min_temp" : "65",
+  "precision": 1.0,
+  "temperature_unit" : "F",
+  "initial": 101,
+  "optimistic" : "false",
+  "unique_id":"boiler",
+  "device": {
+      "identifiers":[
+         "01"
+      ],
+      "name":"SpaHeater"
+   }
+}
+
+static constexpr char testStr[] =
+    "{\n"       // <base_topic>, <device-name>, <entity-name>
+        "'~' : '%0/water_heater/%2',\n"
+        "'name': '%2',\n"                     
+        "'modes': [\n"
+            "'off',\n"
+            "'eco',\n"
+            "'performance'\n"
+        "],\n"
+
+        "'availability_topic' : '~/avail',\n"
+        "'availability_template' : '{{ value_json }}',\n"
+        "'mode_state_topic': '~/mode',\n"
+        "'mode_state_template' : '{{ value_json }}',\n"
+        "'mode_command_topic': '~/mode/set',\n"
+        "'temperature_state_topic': '~/temperature',\n"
+        "'temperature_command_topic': '~/temperature/set',\n"
+        "'current_temperature_topic': '~/current_temperature',\n"
+        "'power_command_topic' : '~/power/set',\n"
+        "'max_temp' : '160',\n"
+        "'min_temp' : '65',\n"
+        "'precision': 1.0,\n"
+        "'temperature_unit' : 'F',\n"
+        "'initial': 101,\n"
+        "'optimistic' : 'false',\n"
+        "'unique_id':'%2',\n"
+        "'device':\n"
+        "{\n"
+            "'identifiers' : ['01'],\n"
+            "'name' : '%1'\n"
+        "}\n"
+     "}\n";
+
+
+
+
+
+homeassistant/sensor/SpaEqrTemp/config
+
+{
+  "name": "SpaEqrTemp",
+  "device_class" : "temperature",
+  "unit_of_measurement":"°F",
+
+  "availability_topic" : "homeassistant/sensor/SpaEqrTemp/avail",
+  "availability_template" : "{{ value_json }}",
+
+  "state_topic" : "homeassistant/sensor/SpaEqrTemp/temperature",
+
+  "unique_id" : "Thermo01",
+  "device": {
+      "identifiers":[
+         "01"
+      ],
+      "name":"SpaHeater"
+   }
+}
+
+
+{
+  "~": "homeassistant/light/kitchen",
+  "name": null,
+  "uniq_id": "kitchen_light",
+  "cmd_t": "~/set",
+  "stat_t": "~/state",
+  "schema": "json",
+  "dev": {
+    "ids": "ea334450945afc",
+    "name": "Kitchen",
+    "mf": "Bla electronics",
+    "mdl": "xya",
+    "sw": "1.0",
+    "hw": "1.0rev2",
+  },
+  "o": {
+    "name":"bla2mqtt",
+    "sw": "2.1",
+    "url": "https://bla2mqtt.example.com/support",
+  }
+}
+
+{
+  'name': '%',
+  'modes: [
+    'off',
+    'eco',
+    'performance'
+    ],
+
+  'availability_topic' : 'homeassistant/water_heater/boiler/avail',
+  'availability_template' : '{{ value_json }}',
+  'mode_state_topic': 'homeassistant/water_heater/boiler/mode',
+  'mode_state_template' : '{{ value_json }}',
+  'mode_command_topic': 'homeassistant/water_heater/boiler/mode/set',
+  'temperature_state_topic': 'homeassistant/water_heater/boiler/temperature',
+  'temperature_command_topic': 'homeassistant/water_heater/boiler/temperature/set',
+  'current_temperature_topic': 'homeassistant/water_heater/boiler/current_temperature',
+  'power_command_topic' : 'homeassistant/water_heater/boiler/power/set',
+  'max_temp' : '160',
+  'min_temp' : '65',
+  'precision': 1.0,
+  'temperature_unit' : 'F',
+  'initial': 101,
+  'optimistic' : 'false',
+  'unique_id':'boiler',
+  'device': {
+      'identifiers':[
+         '01'
+      ],
+      'name':'SpaHeater'
+   }
+}
+

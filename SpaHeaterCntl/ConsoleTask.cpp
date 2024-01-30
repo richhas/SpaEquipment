@@ -315,14 +315,14 @@ CmdLine::Status SetBoilerHysteresisConfigProcessor(Stream &CmdStream, int Argc, 
 
 
 CmdLine::ProcessorDesc configBoilerCmdProcessors[] =
-    {
-        {ExitBoilerConfigProcessor, "exit", "Exit the config of the boiler"},
-        {ShowBoilerConfigProcessor, "show", "Show current boiler config and detected sensor list"},
-        {AssignTempConfigProcessor, "assign", "Assign sensor to function. Format: assign <sensor number> 'ambiant'|'boilerIn'|'boilerOut'"},
-        {EraseTempConfigProcessor, "erase", "Erase the boiler's temperture sensor assignment config"},
-        {SetBoilerTargetTempInFConfigProcessor, "setTempF", "Set the boiler's target temperature in degrees F. Format: setTempF <temp>"},
-        {SetBoilerTargetTempInCConfigProcessor, "setTempC", "Set the boiler's target temperature in degrees C. Format: setTempC <temp>"},
-        {SetBoilerHysteresisConfigProcessor, "setHysteresis", "Set the boiler's hysteresis. Format: setHysteresis <hysteresis>"},
+{
+    {ExitBoilerConfigProcessor, "exit", "Exit the config of the boiler"},
+    {ShowBoilerConfigProcessor, "show", "Show current boiler config and detected sensor list"},
+    {AssignTempConfigProcessor, "assign", "Assign sensor to function. Format: assign <sensor number> 'ambiant'|'boilerIn'|'boilerOut'"},
+    {EraseTempConfigProcessor, "erase", "Erase the boiler's temperture sensor assignment config"},
+    {SetBoilerTargetTempInFConfigProcessor, "setTempF", "Set the boiler's target temperature in degrees F. Format: setTempF <temp>"},
+    {SetBoilerTargetTempInCConfigProcessor, "setTempC", "Set the boiler's target temperature in degrees C. Format: setTempC <temp>"},
+    {SetBoilerHysteresisConfigProcessor, "setHysteresis", "Set the boiler's hysteresis. Format: setHysteresis <hysteresis>"},
 };
 
 CmdLine::Status ExitBoilerControlProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
@@ -426,18 +426,18 @@ CmdLine::Status ClearOneWireStatsControlProcessor(Stream &CmdStream, int Argc, c
 }
 
 CmdLine::ProcessorDesc controlBoilerCmdProcessors[] =
-    {
-        {AssignTempConfigProcessor, "assign", "Assign sensor to function. Format: assign <sensor number> 'ambiant'|'boilerIn'|'boilerOut'"},
-        {SetBoilerTargetTempInFConfigProcessor, "setTempF", "Set the boiler's target temperature config in degrees F. Format: setTempF <temp>"},
-        {SetBoilerTargetTempInCConfigProcessor, "setTempC", "Set the boiler's target temperature config in degrees C. Format: setTempC <temp>"},
-        {SetBoilerHysteresisConfigProcessor, "setHysteresis", "Set the boiler's hysteresis in config. Format: setHysteresis <hysteresis>"},
-        {SetBoilerParamsControlProcessor, "setBoilerConfig", "Set boiler's parameters from its config. Usage: setBoilerConfig"},
-        {StartBoilerControlProcessor, "Start", "Start the boiler state machine - only if it is Faulted or Stopped. Usage: setBoilerConfig"},
-        {StopBoilerControlProcessor, "Stop", "Stop the boiler state machine - only if it is Running. Usage: setBoilerConfig"},
-        {ResetBoilerControlProcessor, "Reset", "Reset the boiler state machine - only if it is Faulted. Usage: setBoilerConfig"},
-        {ShowBoilerControlProcessor, "show", "Show current boiler state"},
-        {ClearOneWireStatsControlProcessor, "clearOWStats", "Clear the OneWire Bus Stats"},
-        {ExitBoilerControlProcessor, "exit", "Exit the control of the boiler"},
+{
+    {AssignTempConfigProcessor, "assign", "Assign sensor to function. Format: assign <sensor number> 'ambiant'|'boilerIn'|'boilerOut'"},
+    {SetBoilerTargetTempInFConfigProcessor, "setTempF", "Set the boiler's target temperature config in degrees F. Format: setTempF <temp>"},
+    {SetBoilerTargetTempInCConfigProcessor, "setTempC", "Set the boiler's target temperature config in degrees C. Format: setTempC <temp>"},
+    {SetBoilerHysteresisConfigProcessor, "setHysteresis", "Set the boiler's hysteresis in config. Format: setHysteresis <hysteresis>"},
+    {SetBoilerParamsControlProcessor, "setBoilerConfig", "Set boiler's parameters from its config. Usage: setBoilerConfig"},
+    {StartBoilerControlProcessor, "Start", "Start the boiler state machine - only if it is Faulted or Stopped. Usage: setBoilerConfig"},
+    {StopBoilerControlProcessor, "Stop", "Stop the boiler state machine - only if it is Running. Usage: setBoilerConfig"},
+    {ResetBoilerControlProcessor, "Reset", "Reset the boiler state machine - only if it is Faulted. Usage: setBoilerConfig"},
+    {ShowBoilerControlProcessor, "show", "Show current boiler state"},
+    {ClearOneWireStatsControlProcessor, "clearOWStats", "Clear the OneWire Bus Stats"},
+    {ExitBoilerControlProcessor, "exit", "Exit the control of the boiler"},
 };
 
 ConsoleTask::ConsoleTask(Stream &StreamToUse)
@@ -581,7 +581,7 @@ void ConsoleTask::EndBoilerConfig()
 
 void ConsoleTask::ShowCurrentBoilerConfig(int PostLineFeedCount)
 {
-    printf(_stream, "Temp Sensors Configured:\n");
+    _stream.println("Temp Sensors Configured:");
     if (tempSensorsConfig.IsValid())
     {
         if (tempSensorsConfig.GetRecord().IsSensorIdValid(tempSensorsConfig.GetRecord()._ambiantTempSensorId))
@@ -590,7 +590,7 @@ void ConsoleTask::ShowCurrentBoilerConfig(int PostLineFeedCount)
         }
         else
         {
-            printf(_stream, "   Ambiant Temp Sensor: Not Configured\n");
+            _stream.println("   Ambiant Temp Sensor: Not Configured");
         }
 
         if (tempSensorsConfig.GetRecord().IsSensorIdValid(tempSensorsConfig.GetRecord()._boilerInTempSensorId))
@@ -599,7 +599,7 @@ void ConsoleTask::ShowCurrentBoilerConfig(int PostLineFeedCount)
         }
         else
         {
-            printf(_stream, "   Boiler In Temp Sensor: Not Configured\n");
+            _stream.println("   Boiler In Temp Sensor: Not Configured");
         }
 
         if (tempSensorsConfig.GetRecord().IsSensorIdValid(tempSensorsConfig.GetRecord()._boilerOutTempSensorId))
@@ -608,24 +608,24 @@ void ConsoleTask::ShowCurrentBoilerConfig(int PostLineFeedCount)
         }
         else
         {
-            printf(_stream, "   Boiler Out Temp Sensor: Not Configured\n");
+            _stream.println("   Boiler Out Temp Sensor: Not Configured");
         }
 
         if (tempSensorsConfig.GetRecord().IsConfigured())
         {
-            printf(_stream, "   Fully Configured\n");
+            _stream.println("   Fully Configured");
         }
         else
         {
-            printf(_stream, "   Not Fully Configured\n");
+            _stream.println("   Not Fully Configured");
         }
     }
     else
     {
-        printf(_stream, "   No Temp Sensors Configured\n");
+        _stream.println("   No Temp Sensors Configured");
     }
 
-    printf(_stream, "Temp Sensors Discovered:\n");
+    _stream.println("Temp Sensors Discovered:");
     auto const sensors = boilerControllerTask.GetTempSensors();
     int i = 0;
 
@@ -640,7 +640,7 @@ void ConsoleTask::ShowCurrentBoilerConfig(int PostLineFeedCount)
         _stream.println();
     }
 
-    printf(_stream, "Boiler Config:\n");
+    _stream.println("Boiler Config:");
 
     float       temp = boilerConfig.GetRecord()._setPoint;
     float       hysterisis = boilerConfig.GetRecord()._hysteresis;

@@ -20,7 +20,7 @@ using namespace std;
 #include <WiFi.h>
 #include <WiFiS3.h>
 #include <avr/pgmspace.h> // Include the library for code space resident strings
-
+#include <ArduinoMqttClient.h>
 
 
 

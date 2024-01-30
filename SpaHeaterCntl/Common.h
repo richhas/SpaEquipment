@@ -197,10 +197,11 @@ SharedBuffer<TSize>::Handle::Handle()
 
     if (!initialized)
     {
+        $Assert(xTaskGetSchedulerState() == taskSCHEDULER_RUNNING);     // must be called from a task
+        
         CriticalSection cs;
         if (!initialized)
         {
-            $Assert(xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED);
             SharedBuffer<TSize>::_lock = xSemaphoreCreateBinary();
             xSemaphoreGive(SharedBuffer<TSize>::_lock); // give the semaphore so it is available first time
             initialized = true;
@@ -236,6 +237,21 @@ extern int printf(Stream& ToStream, const char* Format, ...);
 // Helper for 64-bit formatted *printf output
 #define $PRIX64 "08X%08X"
 #define To$PRIX64(v) ((uint32_t)(v >> 32)),((uint32_t)v)
+
+// Variable arguments access support
+//
+// Usage: 
+//
+//      void MyFunc(void* NotVarArg, ...)
+//      {
+//          uint32_t*   args = VarArgsBase(NotVarArg);  // first var arg
+//              -- or --
+//          uint32_t (*args)[0] = VarArgsBase(&NotVarArg);
+//
+constexpr uint32_t (* VarArgsBase(void* BaseMinusOne)) [0]
+{
+    return ((uint32_t (*)[0])(((uint32_t*)BaseMinusOne) + 1));
+}
 
 
 //** CRC Support

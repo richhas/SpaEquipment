@@ -22,16 +22,21 @@ shared_ptr<TelnetServer> telnetServer;
 
 
 // Tasks to add:
+//    Not WiFi dependent:
+//      Thermo
+//      Boiler
 //      DiagLog
 //
 //    WiFi dependent:
+//      NetworkMonitor
 //
 //    NetworkMonitor dependent:
 //      MqttClient
+
+//  Overall network core of the system.
 //
-//  Bugs:
-//      - Make entire non-network related code base if-defed out when not in use so that hardware debug can be done
-//        without the network code running - in FF reenable hard breakpoint
+//  Implements state machine for:
+
 
 //*******************************MQTT Workbench******************************************************
 WiFiClient wifiClient;
@@ -88,12 +93,17 @@ void EnableRtcAfterPOR()
     RTC.setTimeIfNotRunning(now);
 }
 
+extern void RunWorkbench();
+
 void setup()
 {
     EnableRtcAfterPOR();        // must be done right after POR to minimize loss of time
 
     Serial.begin(250000);
     delay(1000);
+
+    RunWorkbench();
+    $FailFast();
 
     matrixTask.setup();
     matrixTask.PutString("S00");
@@ -102,7 +112,7 @@ void setup()
     (
         MainThreadEntry,
         static_cast<const char*>("Loop Thread"),
-        (1024) / 4,                 /* usStackDepth in words */
+        (1024 + 500) / 4,           /* usStackDepth in words */
         nullptr,                    /* pvParameters */
         1,                          /* uxPriority */
         &mainThread                 /* pxCreatedTask */
@@ -196,8 +206,17 @@ void FinishStart()
     matrixTask.PutString("S11");
 }
 
+bool TcpIsRunning = false;
+
 CmdLine::Status StartTcpProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
 {
+    if (TcpIsRunning)
+    {
+        printf(CmdStream, "***TCP already running***\n");
+        return CmdLine::Status::Ok;
+    }
+
+    TcpIsRunning = true;
     printf(CmdStream, "***Start TCP***\n");
     testTcpClient = make_shared<TcpClient>(IPAddress("192.168.3.48"), 1883); // test connect to MQTT in test HA
     testTcpClient->Begin();
@@ -206,6 +225,12 @@ CmdLine::Status StartTcpProcessor(Stream &CmdStream, int Argc, char const **Args
 
 CmdLine::Status StopTcpProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
 {
+    if (!TcpIsRunning)
+    {
+        printf(CmdStream, "***TCP not running***\n");
+        return CmdLine::Status::Ok;
+    }
+    TcpIsRunning = false;
     printf(CmdStream, "***Stop TCP***\n");
     testTcpClient->End();
     testTcpClient.reset();
@@ -244,17 +269,17 @@ void MonitorBoiler()
                 boilerControllerTask.GetTempertureState(newState);
 
                 if (newState._boilerInTemp != state._boilerInTemp)
-                    printf(Serial, "Main: Changed: Boiler In Temp: %0.2fC (%0.2fF)\n", newState._boilerInTemp, $CtoF(newState._boilerInTemp));
+                    printf(Serial, "Main: Changed: Boiler In Temp: %f\n", newState._boilerInTemp);
                 if (newState._boilerOutTemp != state._boilerOutTemp)
-                    printf(Serial, "Main: Changed: Boiler Out Temp: %0.2fC (%0.2fF)\n", newState._boilerOutTemp, $CtoF(newState._boilerInTemp));
+                    printf(Serial, "Main: Changed: Boiler Out Temp: %f\n", newState._boilerOutTemp);
                 if (newState._ambiantTemp != state._ambiantTemp)
-                    printf(Serial, "Main: Changed: Ambiant Temp: %0.2fC (%0.2fF)\n", newState._ambiantTemp, $CtoF(newState._boilerInTemp));
+                    printf(Serial, "Main: Changed: Ambiant Temp: %f\n", newState._ambiantTemp);
                if (newState._setPoint != state._setPoint)
-                   printf(Serial, "Main: Changed: Set Point: %0.2fC (%0.2fF)\n", newState._setPoint, $CtoF(newState._boilerInTemp));
+                    printf(Serial, "Main: Changed: Set Point: %f\n", newState._setPoint);          
                 if (newState._hysteresis != state._hysteresis)
-                    printf(Serial, "Main: Changed: Hysteresis: %0.2fC\n", newState._hysteresis);
+                    printf(Serial, "Main: Changed: Hysteresis: %f\n", newState._hysteresis);
                 if (newState._heaterOn != state._heaterOn)
-                    printf(Serial, "Main: Changed: Heater Power: %s\n", newState._heaterOn ? "on" : "off");
+                    printf(Serial, "Main: Changed: Heater On: %s\n", newState._heaterOn ? "true" : "false");
 
                 state = newState;
             }
@@ -320,7 +345,7 @@ void loop()
     }
 
     network.loop();     // give network a chance to do its thing
-    MonitorBoiler();
+    // MonitorBoiler();
     
     
     /*
