@@ -38,31 +38,6 @@ shared_ptr<TelnetServer> telnetServer;
 //  Implements state machine for:
 
 
-//*******************************MQTT Workbench******************************************************
-WiFiClient wifiClient;
-MqttClient mqttClient(wifiClient);
-const char topic[]  = "arduino/simple";
-
-const long interval = 1000;
-unsigned long previousMillis = 0;
-
-int xCount = 0;
-
-void tryMQTT()
-{
-  mqttClient.setUsernamePassword("mqttuser", "mqttpassword");
-
-  if (!mqttClient.connect(IPAddress("192.168.3.48"), 1883)) {
-    Serial.print("MQTT connection failed! Error code = ");
-    Serial.println(mqttClient.connectError());
-
-    while (1);
-  }
-
-  Serial.println("You're connected to the MQTT broker!");
-  Serial.println();
-
-}
 
 void StartTelnet()
 {
@@ -93,17 +68,12 @@ void EnableRtcAfterPOR()
     RTC.setTimeIfNotRunning(now);
 }
 
-extern void RunWorkbench();
-
 void setup()
 {
     EnableRtcAfterPOR();        // must be done right after POR to minimize loss of time
 
     Serial.begin(250000);
     delay(1000);
-
-    RunWorkbench();
-    $FailFast();
 
     matrixTask.setup();
     matrixTask.PutString("S00");
@@ -132,6 +102,7 @@ void setup()
 void MainThreadEntry(void *pvParameters)
 {
     Serial.println("*** Main Thread Started ***");
+
     FinishStart();
 
     while (true)
@@ -204,6 +175,8 @@ void FinishStart()
     matrixTask.PutString("S10");
     network.setup();
     matrixTask.PutString("S11");
+    mqttClient.setup();
+    matrixTask.PutString("S12");
 }
 
 bool TcpIsRunning = false;
@@ -346,46 +319,5 @@ void loop()
 
     network.loop();     // give network a chance to do its thing
     // MonitorBoiler();
-    
-    
-    /*
-        if ((doMQTT == false) && (WiFi.status() == WL_CONNECTED))
-        {
-            tryMQTT();
-            doMQTT = true;
-        }
-    */
-
-    /*
-        if (doMQTT == true)
-        {
-            // call poll() regularly to allow the library to send MQTT keep alives which
-            // avoids being disconnected by the broker
-            mqttClient.poll();
-
-            // to avoid having delays in loop, we'll use the strategy from BlinkWithoutDelay
-            // see: File -> Examples -> 02.Digital -> BlinkWithoutDelay for more info
-            unsigned long currentMillis = millis();
-            
-            if (currentMillis - previousMillis >= interval) {
-                // save the last time a message was sent
-                previousMillis = currentMillis;
-
-                Serial.print("Sending message to topic: ");
-                Serial.println(topic);
-                Serial.print("hello ");
-                Serial.println(xCount);
-
-                // send message, the Print interface can be used to set the message contents
-                mqttClient.beginMessage(topic);
-                mqttClient.print("hello ");
-                mqttClient.print(xCount);
-                mqttClient.endMessage();
-
-                Serial.println();
-
-                xCount++;
-            }
-        }
-    */        
+    mqttClient.loop();
 }

@@ -20,7 +20,6 @@ using namespace std;
 #include <WiFi.h>
 #include <WiFiS3.h>
 #include <avr/pgmspace.h> // Include the library for code space resident strings
-#include <ArduinoMqttClient.h>
 
 
 
@@ -674,6 +673,13 @@ public:
     virtual shared_ptr<NetworkService::Client> CreateClient(shared_ptr<NetworkService> Parent, WiFiClient ClientToUse);
 };
 
+//* MQTT Client Task
+class HA_MqttClient : public ArduinoTask
+{
+public:
+    virtual void setup() override final;
+    virtual void loop() override final;
+};
 
 
 //** Cross module references
@@ -688,3 +694,4 @@ extern class FlashStore<TempSensorsConfig, PS_TempSensorsConfigBase> tempSensors
 extern class BoilerControllerTask boilerControllerTask;
 extern class FlashStore<BoilerConfig, PS_BoilerConfigBase> boilerConfig;
 extern void SetAllBoilerParametersFromConfig();
+extern class HA_MqttClient      mqttClient;

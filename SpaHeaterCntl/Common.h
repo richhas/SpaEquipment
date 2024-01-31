@@ -90,6 +90,9 @@ public:
 
         Handle();
         ~Handle();
+
+    private:
+        bool _locked;
     };
 
     /**
@@ -139,7 +142,7 @@ uint8_t SharedBuffer<TSize>::_buffer[TSize] = {0};
  * @tparam TSize The size of the buffer.
  */
 template <int TSize>
-SemaphoreHandle_t SharedBuffer<TSize>::_lock;
+SemaphoreHandle_t SharedBuffer<TSize>::_lock = NULL;
 
 /**
  * @brief Constructor for the SharedBuffer class.
@@ -188,6 +191,11 @@ typename SharedBuffer<TSize>::Handle SharedBuffer<TSize>::GetHandle()
  * It uses a static volatile flag to ensure that the initialization is performed only once.
  * The constructor also takes the semaphore lock to ensure exclusive access to the shared buffer.
  * 
+ * Handle has two modes of operation: with and without locks depedning on the scheduler state.
+ * If the scheduler is running, the constructor takes the semaphore lock. Otherwise, it does not and
+ * the implementation is not thread-safe. This is useful for initialization code that runs before
+ * the scheduler is started.
+ * 
  * @tparam TSize The size of the buffer.
  */
 template <int TSize>
@@ -197,19 +205,27 @@ SharedBuffer<TSize>::Handle::Handle()
 
     if (!initialized)
     {
-        $Assert(xTaskGetSchedulerState() == taskSCHEDULER_RUNNING);     // must be called from a task
-        
-        CriticalSection cs;
-        if (!initialized)
-        {
-            SharedBuffer<TSize>::_lock = xSemaphoreCreateBinary();
-            xSemaphoreGive(SharedBuffer<TSize>::_lock); // give the semaphore so it is available first time
-            initialized = true;
+        if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING)
+        {        
+            CriticalSection cs;
+            if (!initialized)
+            {
+                SharedBuffer<TSize>::_lock = xSemaphoreCreateBinary();
+                xSemaphoreGive(SharedBuffer<TSize>::_lock); // give the semaphore so it is available first time
+                initialized = true;
+            }
+        }
+        else
+        {   // scheduler not running yet, just return a handle without locks
+            // Use with care!
+            _locked = false;
+            return;
         }
     }
 
     $Assert(SharedBuffer<TSize>::_lock != NULL);
     $Assert(xSemaphoreTake(SharedBuffer<TSize>::_lock, portMAX_DELAY) == pdTRUE);
+    _locked = true;
 }
 
 /**
@@ -222,8 +238,11 @@ SharedBuffer<TSize>::Handle::Handle()
 template <int TSize>
 SharedBuffer<TSize>::Handle::~Handle()
 {
-    $Assert(SharedBuffer<TSize>::_lock != NULL);
-    $Assert(xSemaphoreGive(SharedBuffer<TSize>::_lock) == pdTRUE);
+    if (_locked)
+    {
+        $Assert(SharedBuffer<TSize>::_lock != NULL);
+        $Assert(xSemaphoreGive(SharedBuffer<TSize>::_lock) == pdTRUE);
+    }
 }
 
 
