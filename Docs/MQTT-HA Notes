@@ -66,6 +66,47 @@ static constexpr char testStr[] =
      "}\n";
 
 
+homeassistant/binary_sensor/boiler_power/config
+{
+  "name": "boiler_power",
+  "device_class" : "running",
+  "availability_topic" : "homeassistant/binary_sensor/boiler_power/avail",
+  "availability_template" : "{{ value_json }}",
+  "state_topic" : "homeassistant/binary_sensor/boiler_power/state",
+  "value_template" : "{{ value_json }}",
+  "payload_on" : "ON",
+  "payload_off" : "OFF",
+  "unique_id" : "boiler_power",
+  "device": {
+      "identifiers":[
+         "01"
+      ],
+      "name":"SpaHeater"
+   }
+}
+
+
+{
+  "~" : "homeassistant/binary_sensor/boiler_power",
+  "name": "boiler_power",
+  "device_class" : "running",
+  "availability_topic" : "~/avail",
+  "availability_template" : "{{ value_json }}",
+  "state_topic" : "~/state",
+  "value_template" : "{{ value_json }}",
+  "payload_on" : "ON",
+  "payload_off" : "OFF",
+  "unique_id" : "boiler_power",
+  "device": {
+      "identifiers":[
+         "01"
+      ],
+      "name":"SpaHeater"
+   }
+}
+
+
+
 
 
 
@@ -87,61 +128,6 @@ homeassistant/sensor/SpaEqrTemp/config
          "01"
       ],
       "name":"SpaHeater"
-   }
-}
-
-
-{
-  "~": "homeassistant/light/kitchen",
-  "name": null,
-  "uniq_id": "kitchen_light",
-  "cmd_t": "~/set",
-  "stat_t": "~/state",
-  "schema": "json",
-  "dev": {
-    "ids": "ea334450945afc",
-    "name": "Kitchen",
-    "mf": "Bla electronics",
-    "mdl": "xya",
-    "sw": "1.0",
-    "hw": "1.0rev2",
-  },
-  "o": {
-    "name":"bla2mqtt",
-    "sw": "2.1",
-    "url": "https://bla2mqtt.example.com/support",
-  }
-}
-
-{
-  'name': '%',
-  'modes: [
-    'off',
-    'eco',
-    'performance'
-    ],
-
-  'availability_topic' : 'homeassistant/water_heater/boiler/avail',
-  'availability_template' : '{{ value_json }}',
-  'mode_state_topic': 'homeassistant/water_heater/boiler/mode',
-  'mode_state_template' : '{{ value_json }}',
-  'mode_command_topic': 'homeassistant/water_heater/boiler/mode/set',
-  'temperature_state_topic': 'homeassistant/water_heater/boiler/temperature',
-  'temperature_command_topic': 'homeassistant/water_heater/boiler/temperature/set',
-  'current_temperature_topic': 'homeassistant/water_heater/boiler/current_temperature',
-  'power_command_topic' : 'homeassistant/water_heater/boiler/power/set',
-  'max_temp' : '160',
-  'min_temp' : '65',
-  'precision': 1.0,
-  'temperature_unit' : 'F',
-  'initial': 101,
-  'optimistic' : 'false',
-  'unique_id':'boiler',
-  'device': {
-      'identifiers':[
-         '01'
-      ],
-      'name':'SpaHeater'
    }
 }
 

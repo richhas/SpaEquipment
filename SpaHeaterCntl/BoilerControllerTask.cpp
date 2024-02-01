@@ -123,12 +123,31 @@ void BoilerControllerTask::loop()
         tempState._hysteresis = targetTemps._hysteresis;
     }
 
+    // Support function to check for any changes in the heater status and update the shared state if necessary
+    auto UpDateHeaterStateIfNeeded = [&tempState](TempertureState& _tempState)  // Capture _tempState by reference from the outer scope
+    {
+        // Check for any changes in the heater status and update the shared state if necessary
+        if (digitalRead(_heaterControlPin) != tempState._heaterOn)
+        {
+            // The heater state has changed - update our local copy
+            tempState._heaterOn = digitalRead(_heaterControlPin);
+
+            {
+                CriticalSection cs;
+                // Update the temp state for the foreground task's access
+                _tempState._sequence++; // Increment the sequence number so foreground task knows the heater state has changed
+                _tempState._heaterOn = tempState._heaterOn;
+            }
+        }
+    };
+
     //* Main state machine for the BoilerControllerTask
     switch (_state)
     {
         case HeaterState::Halted:
         {
             digitalWrite(_heaterControlPin, false); // Make sure the heater is turned off
+            UpDateHeaterStateIfNeeded(_tempState);
 
             if (command == Command::Start)
             {
@@ -335,17 +354,7 @@ void BoilerControllerTask::loop()
                     }
 
                     // Check for any changes in the heater status and update the shared state if necessary
-                    if (digitalRead(_heaterControlPin) != tempState._heaterOn)
-                    {
-                        // The heater state has changed - update our local copy
-                        tempState._heaterOn = digitalRead(_heaterControlPin);
-
-                        { CriticalSection cs;
-                            // Update the temp state for the foreground task's access
-                            _tempState._sequence++; // Increment the sequence number so foreground task knows the heater state has changed
-                            _tempState._heaterOn = tempState._heaterOn;
-                        }
-                    }
+                    UpDateHeaterStateIfNeeded(_tempState);
                 }
                 break;
 
@@ -360,6 +369,8 @@ void BoilerControllerTask::loop()
         case HeaterState::Faulted:
         {
             digitalWrite(_heaterControlPin, false); // Make sure the heater is turned off
+            UpDateHeaterStateIfNeeded(_tempState);
+
             if (command == Command::Reset)
             {
                 SafeClearCommand();                      // acknowledge the command

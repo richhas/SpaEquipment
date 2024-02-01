@@ -28,16 +28,7 @@ shared_ptr<TelnetServer> telnetServer;
 //      DiagLog
 //
 //    WiFi dependent:
-//      NetworkMonitor
 //
-//    NetworkMonitor dependent:
-//      MqttClient
-
-//  Overall network core of the system.
-//
-//  Implements state machine for:
-
-
 
 void StartTelnet()
 {
