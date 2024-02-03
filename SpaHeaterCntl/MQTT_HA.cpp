@@ -209,11 +209,10 @@ namespace HA_Mqtt
             "}\n"
         "}\n";
 
-    int expandedMsgSizeOfBoilerConfigJson;
-
     // JSON template for Home Assistant MQTT base topic for water_heater
     static constexpr char BoilerBaseTopicJsonTemplate[] = "%0/water_heater/%1";   // Parms: <base_topic>, <entity-name>
     char*   boilerBaseTopic;      // Boiler Base Topic expanded string
+    int expandedMsgSizeOfBoilerConfigJson;
 
     // JSON template for Home Assistant MQTT sensor (temperature) configuration
     static constexpr char ThermometerConfigJsonTemplate[] =
@@ -249,7 +248,6 @@ namespace HA_Mqtt
         "{\n" // Parms: <base_topic>, <device-name>, <entity-name>
             "'~' : '%0/binary_sensor/%2',\n"
             "'name': '%2',\n"
- //           "'device_class' : 'None',\n"
             "'avty_t' : '~/avail',\n"
             "'avty_tpl' : '{{ value_json }}',\n"
             "'stat_t' : '~/state',\n"
@@ -295,6 +293,40 @@ namespace HA_Mqtt
     int expandedMsgSizeOfBoilerStateSensorConfigJson;
 
 
+    // Describes a Home Assistant entity for the sake of building the /config and /avail messages
+    class HaEntityDesc
+    {
+    public:
+        const char* const _EntityName;
+        const char* const _ConfigJsonTemplate;
+        const char* const _BaseTopicJsonTemplate;
+        char** _BaseTopicResult;
+        int* _ExpandedMsgSizeResult;
+    
+        HaEntityDesc() = delete;
+        HaEntityDesc(const char* EntityName, const char* ConfigJsonTemplate, const char* BaseTopicJsonTemplate, char** BaseTopicResult, int* ExpandedMsgSizeResult) :
+            _EntityName(EntityName), 
+            _ConfigJsonTemplate(ConfigJsonTemplate), 
+            _BaseTopicJsonTemplate(BaseTopicJsonTemplate), 
+            _BaseTopicResult(BaseTopicResult), 
+            _ExpandedMsgSizeResult(ExpandedMsgSizeResult)
+        {}
+    };
+
+    // Describes all Home Assistant entities for the sake of building the /config and /avail messages
+    HaEntityDesc _entityDescs[] = 
+    {
+        HaEntityDesc(_defaultBoilerName, BoilerConfigJsonTemplate, BoilerBaseTopicJsonTemplate, &boilerBaseTopic, &expandedMsgSizeOfBoilerConfigJson),
+        HaEntityDesc(_defaultAmbientTempName, ThermometerConfigJsonTemplate, ThermometerBaseTopicJsonTemplate, &ambientThermometerBaseTopic, &expandedMsgSizeOfAmbientThermometerConfigJson),
+        HaEntityDesc(_defaultBoilerInTempName, ThermometerConfigJsonTemplate, ThermometerBaseTopicJsonTemplate, &boilerInThermometerBaseTopic, &expandedMsgSizeOfBoilerInThermometerConfigJson),
+        HaEntityDesc(_defaultBoilerOutTempName, ThermometerConfigJsonTemplate, ThermometerBaseTopicJsonTemplate, &boilerOutThermometerBaseTopic, &expandedMsgSizeOfBoilerOutThermometerConfigJson),
+        HaEntityDesc(_defaultHeaterStateName, BinarySensorConfigJsonTemplate, BinarySensorBaseTopicJsonTemplate, &heaterStateBinarySensorBaseTopic, &expandedMsgSizeOfHeaterBinarySensorConfigJson),
+        HaEntityDesc(_defaultBoilerStateName, EnumTextSensorConfigJsonTemplate, EnumTextSensorBaseTopicJsonTemplate, &boilerStateSensorBaseTopic, &expandedMsgSizeOfBoilerStateSensorConfigJson)
+    };
+    int _entityDescCount = sizeof(_entityDescs) / sizeof(HaEntityDesc);
+
+
+
     //* Helper to build expanded topic strings
     int BuildTopicString(const char& Template, char*& Result, const char* BaseTopic, const char* EntityName)
     {
@@ -316,78 +348,25 @@ namespace HA_Mqtt
         $Assert(Config->IsValid());
 
         //* Build each topic base string
-
-        // Boiler
-        BuildTopicString(BoilerBaseTopicJsonTemplate[0], boilerBaseTopic, Config->GetRecord()._baseHATopic, _defaultBoilerName);
-
-        // Ambient Thermometer
-        BuildTopicString(ThermometerBaseTopicJsonTemplate[0], ambientThermometerBaseTopic, Config->GetRecord()._baseHATopic, _defaultAmbientTempName);
-
-        // Boiler In Thermometer
-        BuildTopicString(ThermometerBaseTopicJsonTemplate[0], boilerInThermometerBaseTopic, Config->GetRecord()._baseHATopic, _defaultBoilerInTempName);
-
-        // Boiler Out Thermometer
-        BuildTopicString(ThermometerBaseTopicJsonTemplate[0], boilerOutThermometerBaseTopic, Config->GetRecord()._baseHATopic, _defaultBoilerOutTempName);
-
-        // Heater State Binary Sensor
-        BuildTopicString(BinarySensorBaseTopicJsonTemplate[0], heaterStateBinarySensorBaseTopic, Config->GetRecord()._baseHATopic, _defaultHeaterStateName);
-
-        // Boiler State Sensor
-        BuildTopicString(EnumTextSensorBaseTopicJsonTemplate[0], boilerStateSensorBaseTopic, Config->GetRecord()._baseHATopic, _defaultBoilerStateName);
+        for (int i = 0; i < _entityDescCount; i++)
+        {
+            HaEntityDesc& desc = _entityDescs[i];
+            BuildTopicString(*desc._BaseTopicJsonTemplate, *desc._BaseTopicResult, Config->GetRecord()._baseHATopic, desc._EntityName);
+        }
 
         //* Compute sizes of the expanded HA entity /config JSON strings - this allow the use of a streaming for of MqttClient::BeginMessage();
         //  thus reducing memory usage by avoiding the need to allocate a larger buffer for the JSON string
         PrintOutputCounter counter;
 
-        expandedMsgSizeOfBoilerConfigJson = ExpandJson(
-            counter, 
-            BoilerConfigJsonTemplate, 
-            Config->GetRecord()._baseHATopic, 
-            Config->GetRecord()._haDeviceName, 
-            _defaultBoilerName);
-        $Assert(expandedMsgSizeOfBoilerConfigJson > 0);
-
-        expandedMsgSizeOfAmbientThermometerConfigJson = ExpandJson(
-            counter, 
-            ThermometerConfigJsonTemplate, 
-            Config->GetRecord()._baseHATopic, 
-            Config->GetRecord()._haDeviceName, 
-            _defaultAmbientTempName);
-        $Assert(expandedMsgSizeOfAmbientThermometerConfigJson > 0);
-
-        expandedMsgSizeOfBoilerInThermometerConfigJson = ExpandJson(
-            counter, 
-            ThermometerConfigJsonTemplate, 
-            Config->GetRecord()._baseHATopic, 
-            Config->GetRecord()._haDeviceName, 
-            _defaultBoilerInTempName);
-        $Assert(expandedMsgSizeOfBoilerInThermometerConfigJson > 0);
-
-        expandedMsgSizeOfBoilerOutThermometerConfigJson = ExpandJson(
-            counter, 
-            ThermometerConfigJsonTemplate, 
-            Config->GetRecord()._baseHATopic, 
-            Config->GetRecord()._haDeviceName, 
-            _defaultBoilerOutTempName);
-        $Assert(expandedMsgSizeOfBoilerOutThermometerConfigJson > 0);
-
-        expandedMsgSizeOfHeaterBinarySensorConfigJson = ExpandJson(
-            counter, 
-            BinarySensorConfigJsonTemplate, 
-            Config->GetRecord()._baseHATopic, 
-            Config->GetRecord()._haDeviceName, 
-            _defaultHeaterStateName);
-        $Assert(expandedMsgSizeOfHeaterBinarySensorConfigJson > 0);
-
-        expandedMsgSizeOfBoilerStateSensorConfigJson = ExpandJson(
-            counter, 
-            EnumTextSensorConfigJsonTemplate, 
-            Config->GetRecord()._baseHATopic, 
-            Config->GetRecord()._haDeviceName, 
-            _defaultBoilerStateName);
-        $Assert(expandedMsgSizeOfBoilerStateSensorConfigJson > 0);
+        for (int i = 0; i < _entityDescCount; i++)
+        {
+            HaEntityDesc& desc = _entityDescs[i];
+            *desc._ExpandedMsgSizeResult = ExpandJson(counter, desc._ConfigJsonTemplate, Config->GetRecord()._baseHATopic, Config->GetRecord()._haDeviceName, desc._EntityName);
+            $Assert(*desc._ExpandedMsgSizeResult > 0);
+        }
     }
 
+    //* Flash store for MQTT configuration
     FlashStore<HA_MqttConfig, PS_MQTTBrokerConfigBase> mqttConfig;
     static_assert(PS_MQTTBrokerConfigBlkSize >= sizeof(FlashStore<HA_MqttConfig, PS_MQTTBrokerConfigBase>));
 } // namespace HA_Mqtt
