@@ -150,7 +150,8 @@ namespace HA_Mqtt
     static constexpr char _defaultAmbientTempName[] = "ambientTemp";
     static constexpr char _defaultBoilerInTempName[] = "boilerInTemp";
     static constexpr char _defaultBoilerOutTempName[] = "boilerOutTemp";
-    static constexpr char _defaultHeaterStateName[] = "heaterState";
+    static constexpr char _defaultHeaterStateName[] = "HeatingElement";
+    static constexpr char _defaultBoilerStateName[] = "BoilerState";
 
     // MQTT Topic suffixes for Home Assistant MQTT supported platforms
     // Common
@@ -170,6 +171,9 @@ namespace HA_Mqtt
 
     // binary_sensor (running)
     static constexpr char _haBinarySensorState[] = "/state";
+
+    // sensor (enum)
+    static constexpr char _haSensorEnum[] = "/state";
 
     // JSON template for Home Assistant MQTT water_heater configuration
     static constexpr char BoilerConfigJsonTemplate[] =
@@ -221,7 +225,6 @@ namespace HA_Mqtt
             "'avty_t' : '~/avail',\n"
             "'avty_tpl' : '{{ value_json }}',\n"
             "'stat_t' : '~/temperature',\n"    
-
             "'uniq_id' : '%2',\n"
             "'dev':\n"
             "{\n"
@@ -246,13 +249,13 @@ namespace HA_Mqtt
         "{\n" // Parms: <base_topic>, <device-name>, <entity-name>
             "'~' : '%0/binary_sensor/%2',\n"
             "'name': '%2',\n"
-            "'device_class' : 'running',\n"
+ //           "'device_class' : 'None',\n"
             "'avty_t' : '~/avail',\n"
             "'avty_tpl' : '{{ value_json }}',\n"
             "'stat_t' : '~/state',\n"
             "'val_tpl' : '{{ value_json }}',\n"
-            "'pl_on' : 'ON',\n"
-            "'pl_off' : 'OFF',\n"
+            "'pl_on' : 'On',\n"
+            "'pl_off' : 'Off',\n"
             "'uniq_id' : '%2',\n"
             "'dev':\n"
             "{\n"
@@ -265,6 +268,32 @@ namespace HA_Mqtt
     static constexpr char BinarySensorBaseTopicJsonTemplate[] = "%0/binary_sensor/%1"; // Parms: <base_topic>, <entity-name>
     char*   heaterStateBinarySensorBaseTopic;           // Heater State Binary Sensor Base Topic expanded string
     int     expandedMsgSizeOfHeaterBinarySensorConfigJson;
+
+
+    // JSON template for Home Assistant MQTT sensor (enum) configuration. This for any "sensor" that wants to just publish
+    // a value that is an enum (e.g. "ON" or "OFF")
+    static constexpr char EnumTextSensorConfigJsonTemplate[] =
+        "{\n" // Parms: <base_topic>, <device-name>, <entity-name>
+            "'~' : '%0/sensor/%2',\n"
+            "'name': '%2',\n"
+            "'device_class' : 'enum',\n"
+            "'avty_t' : '~/avail',\n"
+            "'avty_tpl' : '{{ value_json }}',\n"
+            "'stat_t' : '~/state',\n"
+            "'val_tpl' : '{{ value_json }}',\n"
+            "'uniq_id' : '%2',\n"
+            "'dev':\n"
+            "{\n"
+                "'identifiers' : ['01'],\n"
+                "'name' : '%1'\n"
+            "}\n"
+        "}\n";
+
+    // JSON template for Home Assistant MQTT base topic for sensor (enum) topic
+    static constexpr char EnumTextSensorBaseTopicJsonTemplate[] = "%0/sensor/%1"; // Parms: <base_topic>, <entity-name>
+    char* boilerStateSensorBaseTopic;           // Boiler State Sensor Base Topic expanded string
+    int expandedMsgSizeOfBoilerStateSensorConfigJson;
+
 
     //* Helper to build expanded topic strings
     int BuildTopicString(const char& Template, char*& Result, const char* BaseTopic, const char* EntityName)
@@ -302,6 +331,9 @@ namespace HA_Mqtt
 
         // Heater State Binary Sensor
         BuildTopicString(BinarySensorBaseTopicJsonTemplate[0], heaterStateBinarySensorBaseTopic, Config->GetRecord()._baseHATopic, _defaultHeaterStateName);
+
+        // Boiler State Sensor
+        BuildTopicString(EnumTextSensorBaseTopicJsonTemplate[0], boilerStateSensorBaseTopic, Config->GetRecord()._baseHATopic, _defaultBoilerStateName);
 
         //* Compute sizes of the expanded HA entity /config JSON strings - this allow the use of a streaming for of MqttClient::BeginMessage();
         //  thus reducing memory usage by avoiding the need to allocate a larger buffer for the JSON string
@@ -346,6 +378,14 @@ namespace HA_Mqtt
             Config->GetRecord()._haDeviceName, 
             _defaultHeaterStateName);
         $Assert(expandedMsgSizeOfHeaterBinarySensorConfigJson > 0);
+
+        expandedMsgSizeOfBoilerStateSensorConfigJson = ExpandJson(
+            counter, 
+            EnumTextSensorConfigJsonTemplate, 
+            Config->GetRecord()._baseHATopic, 
+            Config->GetRecord()._haDeviceName, 
+            _defaultBoilerStateName);
+        $Assert(expandedMsgSizeOfBoilerStateSensorConfigJson > 0);
     }
 
     FlashStore<HA_MqttConfig, PS_MQTTBrokerConfigBase> mqttConfig;
@@ -513,6 +553,19 @@ void HA_MqttClient::loop()
             return false;
         }
 
+        // Send /config for the boiler state sensor
+        if (!SendConfigJSON(
+            MqttClient, 
+            mqttConfig.GetRecord()._baseHATopic, 
+            boilerStateSensorBaseTopic,
+            mqttConfig.GetRecord()._haDeviceName, 
+            _defaultBoilerStateName, 
+            EnumTextSensorConfigJsonTemplate, 
+            expandedMsgSizeOfBoilerStateSensorConfigJson))
+        {
+            return false;
+        }
+
         return true;
     };
 
@@ -578,6 +631,12 @@ void HA_MqttClient::loop()
 
         // Send /avail for the heater state binary sensor
         if (!SendAvailMsg(MqttClient, mqttConfig.GetRecord()._baseHATopic, heaterStateBinarySensorBaseTopic, _defaultHeaterStateName, _haAvailOnline))
+        {
+            return false;
+        }
+
+        // Send /avail for the boiler state sensor
+        if (!SendAvailMsg(MqttClient, mqttConfig.GetRecord()._baseHATopic, boilerStateSensorBaseTopic, _defaultBoilerStateName, _haAvailOnline))
         {
             return false;
         }
@@ -699,7 +758,7 @@ void HA_MqttClient::loop()
                 }
                 if (force || (newState._heaterOn != state._heaterOn))
                 {
-                    if (!SendPropertyMsgStr(MqttClient, heaterStateBinarySensorBaseTopic, _haBinarySensorState, newState._heaterOn ? "ON" : "OFF"))
+                    if (!SendPropertyMsgStr(MqttClient, heaterStateBinarySensorBaseTopic, _haBinarySensorState, newState._heaterOn ? "On" : "Off"))
                     {
                         return false;
                     }
@@ -707,6 +766,24 @@ void HA_MqttClient::loop()
 
                 state = newState;
                 lastSeq = state._sequence;
+            }
+
+            // Send the boiler state if it has changed or if forced - translate the state to a string
+            static BoilerControllerTask::HeaterState lastHeaterState = BoilerControllerTask::HeaterState(-1);
+            BoilerControllerTask::HeaterState currHeaterState = boilerControllerTask.GetHeaterState();
+
+            if (force || (currHeaterState != lastHeaterState))
+            {
+                if (!SendPropertyMsgStr(
+                    MqttClient, 
+                    boilerStateSensorBaseTopic, 
+                    _haSensorEnum, 
+                    BoilerControllerTask::GetHeaterStateDescription(currHeaterState)))
+                {
+                    return false;
+                }
+
+                lastHeaterState = currHeaterState;
             }
 
             timer.SetAlarm(1000);
@@ -824,6 +901,7 @@ void HA_MqttClient::loop()
             if (publishConfigTimer.IsAlarmed())
             {
                 // Publish the Home Assistant /config JSON strings for each entity
+                logger.Printf(Logger::RecType::Info, "Sending /config messages to Home Assistant");
                 if (!SendAllConfigMsgs(mqttClient))
                 {
                     logger.Printf(Logger::RecType::Critical, "Failed to send /config messages to Home Assistant - restarting");
@@ -838,6 +916,7 @@ void HA_MqttClient::loop()
             if (publishAvailTimer.IsAlarmed())
             {
                 // Make all entities available
+                logger.Printf(Logger::RecType::Info, "Sending /avail messages to Home Assistant");
                 if (!SendAllOnlineAvailMsgs(mqttClient))
                 {
                     logger.Printf(Logger::RecType::Critical, "Failed to send /avail messages to Home Assistant - restarting");

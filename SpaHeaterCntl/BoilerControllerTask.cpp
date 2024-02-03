@@ -67,6 +67,7 @@ void BoilerControllerTask::setup()
 
     // initialize all state visible to the foreground task
     _state = HeaterState::Halted;
+
     _command = Command::Idle;
     _faultReason = FaultReason::None;
 
@@ -124,7 +125,7 @@ void BoilerControllerTask::loop()
     }
 
     // Support function to check for any changes in the heater status and update the shared state if necessary
-    auto UpDateHeaterStateIfNeeded = [&tempState](TempertureState& _tempState)  // Capture _tempState by reference from the outer scope
+    auto UpDateHeaterStateIfNeeded = [&tempState, this]()  // Capture _tempState by reference from the outer scope
     {
         // Check for any changes in the heater status and update the shared state if necessary
         if (digitalRead(_heaterControlPin) != tempState._heaterOn)
@@ -135,8 +136,8 @@ void BoilerControllerTask::loop()
             {
                 CriticalSection cs;
                 // Update the temp state for the foreground task's access
-                _tempState._sequence++; // Increment the sequence number so foreground task knows the heater state has changed
-                _tempState._heaterOn = tempState._heaterOn;
+                this->_tempState._sequence++; // Increment the sequence number so foreground task knows the heater state has changed
+                this->_tempState._heaterOn = tempState._heaterOn;
             }
         }
     };
@@ -147,7 +148,7 @@ void BoilerControllerTask::loop()
         case HeaterState::Halted:
         {
             digitalWrite(_heaterControlPin, false); // Make sure the heater is turned off
-            UpDateHeaterStateIfNeeded(_tempState);
+            UpDateHeaterStateIfNeeded();
 
             if (command == Command::Start)
             {
@@ -354,7 +355,7 @@ void BoilerControllerTask::loop()
                     }
 
                     // Check for any changes in the heater status and update the shared state if necessary
-                    UpDateHeaterStateIfNeeded(_tempState);
+                    UpDateHeaterStateIfNeeded();
                 }
                 break;
 
@@ -369,7 +370,7 @@ void BoilerControllerTask::loop()
         case HeaterState::Faulted:
         {
             digitalWrite(_heaterControlPin, false); // Make sure the heater is turned off
-            UpDateHeaterStateIfNeeded(_tempState);
+            UpDateHeaterStateIfNeeded();
 
             if (command == Command::Reset)
             {

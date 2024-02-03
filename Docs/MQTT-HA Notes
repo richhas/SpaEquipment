@@ -131,3 +131,39 @@ homeassistant/sensor/SpaEqrTemp/config
    }
 }
 
+
+homeassistant/sensor/BoilerState/config
+
+{
+  "name": "BoilerState",
+  "device_class" : "enum",
+  "availability_topic" : "homeassistant/sensor/BoilerState/avail",
+  "availability_template" : "{{ value_json }}",
+  "state_topic" : "homeassistant/sensor/BoilerState/state",
+  "value_template" : "{{ value_json }}",
+  "unique_id" : "BoilerState01",
+  "device": {
+      "identifiers":[
+         "01"
+      ],
+      "name":"SpaHeater"
+   }
+}
+
+{
+   "~" : "homeassistant/binary_sensor/BoilerState",
+   "name": "BoilerState",
+   "device_class" : "enum",
+   "availability_topic" : "~/avail",
+   "availability_template" : "{{ value_json }}",
+   "state_topic" : "!~/state",
+   "value_template" : "{{ value_json }}",
+   "unique_id" : "BoilerState01",
+   "device": {
+   "identifiers":[
+      "01"
+      ],
+   "name":"SpaHeater"
+   }
+}
+
