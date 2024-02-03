@@ -152,6 +152,7 @@ namespace HA_Mqtt
     static constexpr char _defaultBoilerOutTempName[] = "boilerOutTemp";
     static constexpr char _defaultHeaterStateName[] = "HeatingElement";
     static constexpr char _defaultBoilerStateName[] = "BoilerState";
+    static constexpr char _defaultFaultReasonName[] = "FaultReason";
 
     // MQTT Topic suffixes for Home Assistant MQTT supported platforms
     // Common
@@ -292,6 +293,9 @@ namespace HA_Mqtt
     char* boilerStateSensorBaseTopic;           // Boiler State Sensor Base Topic expanded string
     int expandedMsgSizeOfBoilerStateSensorConfigJson;
 
+    char* faultReasonSensorBaseTopic;           // Fault Reason Sensor Base Topic expanded string
+    int expandedMsgSizeOfFaultReasonSensorConfigJson;
+
 
     // Describes a Home Assistant entity for the sake of building the /config and /avail messages
     class HaEntityDesc
@@ -321,7 +325,8 @@ namespace HA_Mqtt
         HaEntityDesc(_defaultBoilerInTempName, ThermometerConfigJsonTemplate, ThermometerBaseTopicJsonTemplate, &boilerInThermometerBaseTopic, &expandedMsgSizeOfBoilerInThermometerConfigJson),
         HaEntityDesc(_defaultBoilerOutTempName, ThermometerConfigJsonTemplate, ThermometerBaseTopicJsonTemplate, &boilerOutThermometerBaseTopic, &expandedMsgSizeOfBoilerOutThermometerConfigJson),
         HaEntityDesc(_defaultHeaterStateName, BinarySensorConfigJsonTemplate, BinarySensorBaseTopicJsonTemplate, &heaterStateBinarySensorBaseTopic, &expandedMsgSizeOfHeaterBinarySensorConfigJson),
-        HaEntityDesc(_defaultBoilerStateName, EnumTextSensorConfigJsonTemplate, EnumTextSensorBaseTopicJsonTemplate, &boilerStateSensorBaseTopic, &expandedMsgSizeOfBoilerStateSensorConfigJson)
+        HaEntityDesc(_defaultBoilerStateName, EnumTextSensorConfigJsonTemplate, EnumTextSensorBaseTopicJsonTemplate, &boilerStateSensorBaseTopic, &expandedMsgSizeOfBoilerStateSensorConfigJson),
+        HaEntityDesc(_defaultFaultReasonName, EnumTextSensorConfigJsonTemplate, EnumTextSensorBaseTopicJsonTemplate, &faultReasonSensorBaseTopic, &expandedMsgSizeOfFaultReasonSensorConfigJson)
     };
     int _entityDescCount = sizeof(_entityDescs) / sizeof(HaEntityDesc);
 
@@ -409,7 +414,7 @@ void HA_MqttClient::loop()
     //** local support functions for the state machine
 
     //* Common beginMessage() function with topic expansion for all messages
-    auto BeginMessage = [](MqttClient &MqttClient, const char *TopicPrefix, const char *Suffix, uint32_t ExpandedMsgSize = 0xffffffffL) -> int
+    static auto BeginMessage = [](MqttClient &MqttClient, const char *TopicPrefix, const char *Suffix, uint32_t ExpandedMsgSize = 0xffffffffL) -> int
     {
         int status;
         {
@@ -430,7 +435,7 @@ void HA_MqttClient::loop()
     };
 
     //* Send a /config JSON message to Home Assistant for a given entity
-    auto SendConfigJSON = [&BeginMessage](
+    static auto SendConfigJSON = [&BeginMessage](
         MqttClient &MqttClient,
         const char *BaseTopic,
         const char *BaseEntityTopic,
@@ -465,91 +470,28 @@ void HA_MqttClient::loop()
     };
 
     //* Send all /config JSON messages to Home Assistant for all entities
-    auto SendAllConfigMsgs = [&SendConfigJSON](MqttClient &MqttClient) -> bool
+    static auto SendAllConfigMsgs = [&SendConfigJSON](MqttClient &MqttClient) -> bool
     {
-        // Send /config for the boiler
-        if (!SendConfigJSON(
-            MqttClient, 
-            mqttConfig.GetRecord()._baseHATopic, 
-            boilerBaseTopic,
-            mqttConfig.GetRecord()._haDeviceName, 
-            _defaultBoilerName, 
-            BoilerConfigJsonTemplate, 
-            expandedMsgSizeOfBoilerConfigJson))
+        for (int i = 0; i < _entityDescCount; i++)
         {
-            return false;
+            HaEntityDesc& desc = _entityDescs[i];
+            if (!SendConfigJSON(
+                MqttClient, 
+                mqttConfig.GetRecord()._baseHATopic, 
+                *desc._BaseTopicResult, 
+                mqttConfig.GetRecord()._haDeviceName, 
+                desc._EntityName, desc._ConfigJsonTemplate, 
+                *desc._ExpandedMsgSizeResult))
+            {
+                return false;
+            }
         }
 
-        // Send /config for the ambient thermometer
-        if (!SendConfigJSON(
-            MqttClient, 
-            mqttConfig.GetRecord()._baseHATopic, 
-            ambientThermometerBaseTopic,
-            mqttConfig.GetRecord()._haDeviceName, 
-            _defaultAmbientTempName, 
-            ThermometerConfigJsonTemplate, 
-            expandedMsgSizeOfAmbientThermometerConfigJson))
-        {
-            return false;
-        }
-
-        // Send /config for the boiler in thermometer
-        if (!SendConfigJSON(
-            MqttClient, 
-            mqttConfig.GetRecord()._baseHATopic, 
-            boilerInThermometerBaseTopic,
-            mqttConfig.GetRecord()._haDeviceName, 
-            _defaultBoilerInTempName, 
-            ThermometerConfigJsonTemplate, 
-            expandedMsgSizeOfBoilerInThermometerConfigJson))
-        {
-            return false;
-        }
-
-        // Send /config for the boiler out thermometer
-        if (!SendConfigJSON(
-            MqttClient, 
-            mqttConfig.GetRecord()._baseHATopic, 
-            boilerOutThermometerBaseTopic,
-            mqttConfig.GetRecord()._haDeviceName, 
-            _defaultBoilerOutTempName, 
-            ThermometerConfigJsonTemplate, 
-            expandedMsgSizeOfBoilerOutThermometerConfigJson))
-        {
-            return false;
-        }
-
-        // Send /config for the heater state binary sensor
-        if (!SendConfigJSON(
-            MqttClient, 
-            mqttConfig.GetRecord()._baseHATopic, 
-            heaterStateBinarySensorBaseTopic,
-            mqttConfig.GetRecord()._haDeviceName, 
-            _defaultHeaterStateName, 
-            BinarySensorConfigJsonTemplate, 
-            expandedMsgSizeOfHeaterBinarySensorConfigJson))
-        {
-            return false;
-        }
-
-        // Send /config for the boiler state sensor
-        if (!SendConfigJSON(
-            MqttClient, 
-            mqttConfig.GetRecord()._baseHATopic, 
-            boilerStateSensorBaseTopic,
-            mqttConfig.GetRecord()._haDeviceName, 
-            _defaultBoilerStateName, 
-            EnumTextSensorConfigJsonTemplate, 
-            expandedMsgSizeOfBoilerStateSensorConfigJson))
-        {
-            return false;
-        }
-
-        return true;
+       return true;
     };
 
     //* Send a /avail message to Home Assistant for a given entity
-    auto SendAvailMsg = [&BeginMessage](
+    static auto SendAvailMsg = [&BeginMessage](
         MqttClient &MqttClient,
         const char *BaseTopic,
         const char *BaseEntityTopic,
@@ -582,49 +524,22 @@ void HA_MqttClient::loop()
     };
 
     //* Send all /avail messages to Home Assistant for all entities
-    auto SendAllOnlineAvailMsgs = [&SendAvailMsg](MqttClient &MqttClient) -> bool
+    static auto SendAllOnlineAvailMsgs = [&SendAvailMsg](MqttClient &MqttClient) -> bool
     {
-        // Send /avail for the boiler
-        if (!SendAvailMsg(MqttClient, mqttConfig.GetRecord()._baseHATopic, boilerBaseTopic, _defaultBoilerName, _haAvailOnline))
+        for (int i = 0; i < _entityDescCount; i++)
         {
-            return false;
-        }
-
-        // Send /avail for the ambient thermometer
-        if (!SendAvailMsg(MqttClient, mqttConfig.GetRecord()._baseHATopic, ambientThermometerBaseTopic, _defaultAmbientTempName, _haAvailOnline))
-        {
-            return false;
-        }
-
-        // Send /avail for the boiler in thermometer
-        if (!SendAvailMsg(MqttClient, mqttConfig.GetRecord()._baseHATopic, boilerInThermometerBaseTopic, _defaultBoilerInTempName, _haAvailOnline))
-        {
-            return false;
-        }
-
-        // Send /avail for the boiler out thermometer
-        if (!SendAvailMsg(MqttClient, mqttConfig.GetRecord()._baseHATopic, boilerOutThermometerBaseTopic, _defaultBoilerOutTempName, _haAvailOnline))
-        {
-            return false;
-        }
-
-        // Send /avail for the heater state binary sensor
-        if (!SendAvailMsg(MqttClient, mqttConfig.GetRecord()._baseHATopic, heaterStateBinarySensorBaseTopic, _defaultHeaterStateName, _haAvailOnline))
-        {
-            return false;
-        }
-
-        // Send /avail for the boiler state sensor
-        if (!SendAvailMsg(MqttClient, mqttConfig.GetRecord()._baseHATopic, boilerStateSensorBaseTopic, _defaultBoilerStateName, _haAvailOnline))
-        {
-            return false;
+            HaEntityDesc& desc = _entityDescs[i];
+            if (!SendAvailMsg(MqttClient, mqttConfig.GetRecord()._baseHATopic, *desc._BaseTopicResult, desc._EntityName, _haAvailOnline))
+            {
+                return false;
+            }
         }
 
         return true;
     };
 
     //* Send a float property message to Home Assistant for a given entity
-    auto SendPropertyMsg = [&BeginMessage](
+    static auto SendPropertyMsg = [&BeginMessage](
         MqttClient &MqttClient,
         const char *BaseEntityTopic,
         const char *PropertyName,
@@ -656,7 +571,7 @@ void HA_MqttClient::loop()
     };
 
     //* Send a string property message to Home Assistant for a given entity
-    auto SendPropertyMsgStr = [&BeginMessage](
+    static auto SendPropertyMsgStr = [&BeginMessage](
         MqttClient &MqttClient,
         const char *BaseEntityTopic,
         const char *PropertyName,
@@ -688,7 +603,7 @@ void HA_MqttClient::loop()
     };
     
     //* Monitor the Boiler State Machine for changes in state and send any changes to Home Assistant
-    auto MonitorBoiler = [&SendPropertyMsg, &SendPropertyMsgStr](MqttClient & MqttClient) -> bool
+    static auto MonitorBoiler = [&SendPropertyMsg, &SendPropertyMsgStr](MqttClient & MqttClient) -> bool
     {
         static uint32_t lastSeq = 0;
         static Timer timer(1000);
@@ -763,6 +678,24 @@ void HA_MqttClient::loop()
                 }
 
                 lastHeaterState = currHeaterState;
+            }
+
+            // Send the fault reason if it has changed or if forced - translate the fault reason to a string
+            static BoilerControllerTask::FaultReason lastFaultReason = BoilerControllerTask::FaultReason(-1);
+            BoilerControllerTask::FaultReason currFaultReason = boilerControllerTask.GetFaultReason();
+
+            if (force || (currFaultReason != lastFaultReason))
+            {
+                if (!SendPropertyMsgStr(
+                    MqttClient, 
+                    faultReasonSensorBaseTopic, 
+                    _haSensorEnum, 
+                    BoilerControllerTask::GetFaultReasonDescription(currFaultReason)))
+                {
+                    return false;
+                }
+
+                lastFaultReason = currFaultReason;
             }
 
             timer.SetAlarm(1000);

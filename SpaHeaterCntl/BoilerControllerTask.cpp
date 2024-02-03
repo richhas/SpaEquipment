@@ -374,6 +374,7 @@ void BoilerControllerTask::loop()
 
             if (command == Command::Reset)
             {
+                SafeSetFaultReason(FaultReason::None);   // Clear the fault reason
                 SafeClearCommand();                      // acknowledge the command
                 SafeSetHeaterState(HeaterState::Halted); // Go back to the Halted state
             }

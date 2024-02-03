@@ -66,6 +66,8 @@ void setup()
     Serial.begin(250000);
     delay(1000);
 
+//    modem.debug(Serial, 0);
+
     matrixTask.setup();
     matrixTask.PutString("S00");
 

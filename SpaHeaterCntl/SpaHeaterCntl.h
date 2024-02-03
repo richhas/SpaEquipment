@@ -278,11 +278,11 @@ public:
             case FaultReason::None:
                 return PSTR("None");
             case FaultReason::TempSensorNotFound:
-                return PSTR("TempSensorNotFound");
+                return PSTR("TSMissing");           // Sensor not found
             case FaultReason::TempSensorReadFailed:
-                return PSTR("TempSensorReadFailed");
+                return PSTR("TSReadErr");           // Sensor read failed
             case FaultReason::CoProcCommError:
-                return PSTR("CoProcCommError");
+                return PSTR("CProcErr");            // Co-processor communication error
             default:
                 return PSTR("Unknown");
         }
