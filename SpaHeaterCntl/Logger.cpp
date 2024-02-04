@@ -6,7 +6,8 @@
 Logger::Logger(Stream &ToStream)
     : _out(ToStream),
       _logSeq(0),
-      _instanceSeq(0xFFFFFFFF)
+      _instanceSeq(0xFFFFFFFF),
+      _highFilterType(Logger::RecType::Info)
 {
 }
 
@@ -14,6 +15,11 @@ Logger::~Logger()
 {
     $FailFast();
 }
+
+void Logger::SetFilter(Logger::RecType HighFilterType)
+{
+    _highFilterType = HighFilterType;
+}   
 
 const char* Logger::ToString(Logger::RecType From)
 {
@@ -51,6 +57,11 @@ void Logger::Begin(uint32_t InstanceSeq)
 
 int Logger::Printf(Logger::RecType Type, const char *Format, ...)
 {
+    if (Type < _highFilterType)
+    {
+        return 0;
+    }
+
     int size;
     va_list args;
 

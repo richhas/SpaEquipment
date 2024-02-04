@@ -63,6 +63,23 @@ constexpr float $CtoF(float C)
     return (C * 9.0 / 5.0) + 32.0;
 }
 
+/**
+ * Converts a temperature Celsius difference to a Fahrenheit difference.
+ */
+constexpr float $CDiffToF(float C)
+{
+    return C * 9.0 / 5.0;
+}
+
+/**
+ * Converts a temperature Fahrenheit difference to a Celsius difference.
+ */
+constexpr float $FDiffToC(float F)
+{
+    return F * 5.0 / 9.0;
+}
+
+
 
 //** All Task Types used
 
@@ -326,14 +343,59 @@ public:
     };
     static void DisplayOneWireBusStats(Stream& output, const OneWireBusStats& stats, const char* prependString = "");
 
+    // Boiler Modes - same as HA UI
+    enum class BoilerMode
+    {
+        Off,
+        Performance,
+        Eco,
+        Undefined
+    };
+
+    static constexpr const char* GetBoilerModeDescription(BoilerMode mode)
+    {
+        switch (mode)
+        {
+            case BoilerMode::Off:
+                return PSTR("off");
+            case BoilerMode::Performance:
+                return PSTR("performance");
+            case BoilerMode::Eco:
+                return PSTR("eco");
+            default:
+                return PSTR("Unknown");
+        }
+    }
+
+    static BoilerMode GetBoilerModeFromDescription(const char* mode)
+    {
+        if (strcmp_P(mode, PSTR("off")) == 0)
+            return BoilerMode::Off;
+        else if (strcmp_P(mode, PSTR("performance")) == 0)
+            return BoilerMode::Performance;
+        else if (strcmp_P(mode, PSTR("eco")) == 0)
+            return BoilerMode::Eco;
+        else
+            return BoilerMode::Undefined;
+    }
+
 public:
     BoilerControllerTask();
     ~BoilerControllerTask();
 
     bool IsBusy();      // Returns true if the controller is busy processing a command (Start/Stop/Reset)
+
     void Start();
     void Stop();
     void Reset();
+
+    // Safe forms of the above commands
+    void StartIfSafe();
+    void StopIfSafe();
+    void ResetIfSafe();
+
+    void SetMode(BoilerMode Mode);
+    BoilerMode GetMode();
 
     inline const vector<uint64_t> &GetTempSensors() const { return _sensors; }
     FaultReason GetFaultReason();
@@ -343,7 +405,6 @@ public:
     
     void SetTempSensorIds(const TempSensorIds& SensorIds);
     void SetTargetTemps(const TargetTemps& TargetTemps);
-
     inline void GetTargetTemps(TargetTemps& Temps) { SnapshotTargetTemps(Temps); }
     inline Command GetCommand() { return SnapshotCommand(); }
     inline void GetTempSensorIds(TempSensorIds& SensorIds) { SnapshotTempSensors(SensorIds); }
@@ -386,6 +447,7 @@ private:
     TempertureState             _tempState;
     Command                     _command;
     OneWireBusStats             _oneWireStats;
+    BoilerMode                  _boilerMode;
 };
 
 
@@ -394,12 +456,13 @@ private:
 class Logger
 {
 public:
-    enum class RecType
+    enum class RecType : uint8_t
     {
-        Start,              // Reserved
-        Info,
-        Warning,
-        Critical,
+        Start = 0xFF,   // Resered: start of log marker record
+        Info = 1,
+        Progress = 2,
+        Warning = 3,
+        Critical = 4,
     };
 
     Logger() = delete;
@@ -408,6 +471,7 @@ public:
 
     void Begin(uint32_t InstanceSeq);
     int Printf(Logger::RecType Type, const char* Format, ...);
+    void SetFilter(Logger::RecType HighFilterType);
 
     static const char* ToString(Logger::RecType From);
 
@@ -415,6 +479,7 @@ private:
     Stream&     _out;
     uint32_t    _logSeq;
     uint32_t    _instanceSeq;
+    RecType     _highFilterType;        // Only log records with a type >= this
 };
 
 //* System Instance Record - In persistant storage
@@ -457,6 +522,8 @@ struct BoilerConfig
 {
     float       _setPoint;      // Target temperature in C
     float       _hysteresis;    // Hysteresis in C
+    BoilerControllerTask::BoilerMode
+                _mode;          // Boiler mode
 
     inline bool IsConfigured()
     {
@@ -674,7 +741,7 @@ public:
 };
 
 //* MQTT Client Task
-class HA_MqttClient : public ArduinoTask
+class HA_MqttClient final : public ArduinoTask
 {
 public:
     virtual void setup() override final;

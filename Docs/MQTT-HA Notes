@@ -167,3 +167,54 @@ homeassistant/sensor/BoilerState/config
    }
 }
 
+
+homeassistant/button/StopButton/config
+
+ - button:
+      unique_id: bedroom_switch_reboot_btn
+      name: "Restart Bedroom Switch"
+      command_topic: "home/bedroom/switch1/commands"
+      payload_press: "restart"
+      availability:
+        - topic: "home/bedroom/switch1/available"
+      qos: 0
+      retain: false
+      entity_category: "config"
+      device_class: "restart"
+
+
+homeassistant/button/StopButton/config
+{
+   "~" : "homeassistant/button/StopButton",
+   "name": "StopButton",
+   "device_class" : "restart",
+   "availability_topic" : "~/avail",
+   "availability_template" : "{{ value_json }}",
+   "command_topic" : "~/cmd",
+   "command_template " : "{{ value_json }}",
+   "unique_id" : "StopButton01",
+   "device": {
+   "identifiers":[
+      "01"
+      ],
+   "name":"SpaHeater"
+   }
+}
+
+
+"{\n"
+   "'~' : 'homeassistant/button/StopButton',\n"
+   "'name': 'StopButton',\n"
+   // "device_class" : "restart",
+   "'availability_topic' : '~/avail',\n"
+   "'availability_template' : '{{ value_json }}',\n"
+   "'command_topic' : '~/cmd',\n"
+   "'command_template' : '{{ value_json }}',\n"
+   "'unique_id' : 'StopButton01',\n"
+   "'device' : {\n"
+      "'identifiers' : [\n"
+         "'01'\n"
+         "],\n"
+      "'name' : 'SpaHeater'\n"
+   "}\n"
+"}\n"

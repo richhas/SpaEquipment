@@ -6,6 +6,8 @@
 #define MQTT_CLIENT_DEBUG 1
 #include <ArduinoMqttClient.h>
 
+#include <functional>
+
 namespace HA_Mqtt
 {
     //* MQTT Configuration record
@@ -146,13 +148,19 @@ namespace HA_Mqtt
         static constexpr char _haAvailOffline[] = "offline";
 
     static constexpr char _defaultDeviceName[] = "SpaHeater";
-    static constexpr char _defaultBoilerName[] = "boiler";
+    static constexpr char _defaultBoilerName[] = "boiler";                  // TODO: Fix naming convention to use Upper Camel Case
     static constexpr char _defaultAmbientTempName[] = "ambientTemp";
     static constexpr char _defaultBoilerInTempName[] = "boilerInTemp";
     static constexpr char _defaultBoilerOutTempName[] = "boilerOutTemp";
     static constexpr char _defaultHeaterStateName[] = "HeatingElement";
     static constexpr char _defaultBoilerStateName[] = "BoilerState";
     static constexpr char _defaultFaultReasonName[] = "FaultReason";
+    static constexpr char _defaultResetButtonName[] = "ResetButton";
+    static constexpr char _defaultStartButtonName[] = "StartButton";
+    static constexpr char _defaultStopButtonName[] = "StopButton";
+    static constexpr char _defaultRebootButtonName[] = "RebootButton";
+
+
 
     // MQTT Topic suffixes for Home Assistant MQTT supported platforms
     // Common
@@ -161,9 +169,9 @@ namespace HA_Mqtt
 
     // water_heater
     static constexpr char _haWHMode[] = "/mode";
-    static constexpr char _haWHModeSet[] = "/mode/set";
+    static constexpr char _haWHModeSet[] = "/mode/set";             // incoming command topic
     static constexpr char _haWHSetpoint[] = "/temperature";
-    static constexpr char _haWHSetpointSet[] = "/temperature/set";
+    static constexpr char _haWHSetpointSet[] = "/temperature/set";  // incoming command topic
     static constexpr char _haWHCurrTemp[] = "/current_temperature";
     static constexpr char _haWHPower[] = "/power";
 
@@ -175,6 +183,11 @@ namespace HA_Mqtt
 
     // sensor (enum)
     static constexpr char _haSensorEnum[] = "/state";
+
+    // button cmd
+    static constexpr char _haButtonCmd[] = "/cmd";      // incoming command topic
+
+    
 
     // JSON template for Home Assistant MQTT water_heater configuration
     static constexpr char BoilerConfigJsonTemplate[] =
@@ -215,6 +228,7 @@ namespace HA_Mqtt
     char*   boilerBaseTopic;      // Boiler Base Topic expanded string
     int expandedMsgSizeOfBoilerConfigJson;
 
+
     // JSON template for Home Assistant MQTT sensor (temperature) configuration
     static constexpr char ThermometerConfigJsonTemplate[] =
         "{\n" // Parms: <base_topic>, <device-name>, <entity-name>
@@ -233,16 +247,14 @@ namespace HA_Mqtt
             "}\n"
         "}\n";
 
-    int expandedMsgSizeOfAmbientThermometerConfigJson;
-    int expandedMsgSizeOfBoilerInThermometerConfigJson;
-    int expandedMsgSizeOfBoilerOutThermometerConfigJson;
-
     // JSON template for Home Assistant MQTT base topic for sensor (temperature) topics
     static constexpr char ThermometerBaseTopicJsonTemplate[] = "%0/sensor/%1"; // Parms: <base_topic>, <entity-name>
     char*   ambientThermometerBaseTopic;          // Ambient Thermometer Base Topic expanded string
     char*   boilerInThermometerBaseTopic;         // Boiler In Thermometer Base Topic expanded string
     char*   boilerOutThermometerBaseTopic;        // Boiler Out Thermometer Base Topic expanded string
-
+    int expandedMsgSizeOfAmbientThermometerConfigJson;
+    int expandedMsgSizeOfBoilerInThermometerConfigJson;
+    int expandedMsgSizeOfBoilerOutThermometerConfigJson;
 
     // JSON template for Home Assistant MQTT binary_sensor (running) configuration
     static constexpr char BinarySensorConfigJsonTemplate[] =
@@ -296,8 +308,37 @@ namespace HA_Mqtt
     char* faultReasonSensorBaseTopic;           // Fault Reason Sensor Base Topic expanded string
     int expandedMsgSizeOfFaultReasonSensorConfigJson;
 
+    // JSON template for Home Assistant MQTT button configuration
+    static constexpr char ButtonConfigJsonTemplate[] =
+        "{\n" // Parms: <base_topic>, <device-name>, <entity-name>
+        "'~' : '%0/button/%2',\n"
+        "'name': '%2',\n"
+        "'avty_t' : '~/avail',\n"
+        "'avty_tpl' : '{{ value_json }}',\n"
+        "'command_topic' : '~/cmd',\n"
+        "'device_class' : 'restart',\n"
+        "'uniq_id' : '%2',\n"
+        "'dev':\n"
+        "{\n"
+        "'identifiers' : ['01'],\n"
+        "'name' : '%1'\n"
+        "}\n"
+        "}\n";
 
-    // Describes a Home Assistant entity for the sake of building the /config and /avail messages
+
+    // JSON template for Home Assistant MQTT base topic for button topics
+    static constexpr char ButtonBaseTopicJsonTemplate[] = "%0/button/%1"; // Parms: <base_topic>, <entity-name>
+    char*   resetButtonBaseTopic;           // Reset Button Base Topic expanded string
+    int expandedMsgSizeOfResetButtonConfigJson;
+    char*   startButtonBaseTopic;           // Start Button Base Topic expanded string
+    int expandedMsgSizeOfStartButtonConfigJson;
+    char*   stopButtonBaseTopic;            // Stop Button Base Topic expanded string
+    int expandedMsgSizeOfStopButtonConfigJson;
+    char*   rebootButtonBaseTopic;          // Reboot Button Base Topic expanded string
+    int expandedMsgSizeOfRebootButtonConfigJson;
+
+
+    //* Describes a Home Assistant entity for the sake of building the /config and /avail messages
     class HaEntityDesc
     {
     public:
@@ -317,7 +358,7 @@ namespace HA_Mqtt
         {}
     };
 
-    // Describes all Home Assistant entities for the sake of building the /config and /avail messages
+    // Describes all Home Assistant entities - for building the /config and /avail messages
     HaEntityDesc _entityDescs[] = 
     {
         HaEntityDesc(_defaultBoilerName, BoilerConfigJsonTemplate, BoilerBaseTopicJsonTemplate, &boilerBaseTopic, &expandedMsgSizeOfBoilerConfigJson),
@@ -326,7 +367,11 @@ namespace HA_Mqtt
         HaEntityDesc(_defaultBoilerOutTempName, ThermometerConfigJsonTemplate, ThermometerBaseTopicJsonTemplate, &boilerOutThermometerBaseTopic, &expandedMsgSizeOfBoilerOutThermometerConfigJson),
         HaEntityDesc(_defaultHeaterStateName, BinarySensorConfigJsonTemplate, BinarySensorBaseTopicJsonTemplate, &heaterStateBinarySensorBaseTopic, &expandedMsgSizeOfHeaterBinarySensorConfigJson),
         HaEntityDesc(_defaultBoilerStateName, EnumTextSensorConfigJsonTemplate, EnumTextSensorBaseTopicJsonTemplate, &boilerStateSensorBaseTopic, &expandedMsgSizeOfBoilerStateSensorConfigJson),
-        HaEntityDesc(_defaultFaultReasonName, EnumTextSensorConfigJsonTemplate, EnumTextSensorBaseTopicJsonTemplate, &faultReasonSensorBaseTopic, &expandedMsgSizeOfFaultReasonSensorConfigJson)
+        HaEntityDesc(_defaultFaultReasonName, EnumTextSensorConfigJsonTemplate, EnumTextSensorBaseTopicJsonTemplate, &faultReasonSensorBaseTopic, &expandedMsgSizeOfFaultReasonSensorConfigJson),
+        HaEntityDesc(_defaultResetButtonName, ButtonConfigJsonTemplate, ButtonBaseTopicJsonTemplate, &resetButtonBaseTopic, &expandedMsgSizeOfResetButtonConfigJson),
+        HaEntityDesc(_defaultStartButtonName, ButtonConfigJsonTemplate, ButtonBaseTopicJsonTemplate, &startButtonBaseTopic, &expandedMsgSizeOfStartButtonConfigJson),
+        HaEntityDesc(_defaultStopButtonName, ButtonConfigJsonTemplate, ButtonBaseTopicJsonTemplate, &stopButtonBaseTopic, &expandedMsgSizeOfStopButtonConfigJson),
+        HaEntityDesc(_defaultRebootButtonName, ButtonConfigJsonTemplate, ButtonBaseTopicJsonTemplate, &rebootButtonBaseTopic, &expandedMsgSizeOfRebootButtonConfigJson) 
     };
     int _entityDescCount = sizeof(_entityDescs) / sizeof(HaEntityDesc);
 
@@ -472,6 +517,7 @@ void HA_MqttClient::loop()
     //* Send all /config JSON messages to Home Assistant for all entities
     static auto SendAllConfigMsgs = [&SendConfigJSON](MqttClient &MqttClient) -> bool
     {
+        // TODO: Consider clearing the config topic before sending the /config messages
         for (int i = 0; i < _entityDescCount; i++)
         {
             HaEntityDesc& desc = _entityDescs[i];
@@ -605,14 +651,16 @@ void HA_MqttClient::loop()
     //* Monitor the Boiler State Machine for changes in state and send any changes to Home Assistant
     static auto MonitorBoiler = [&SendPropertyMsg, &SendPropertyMsgStr](MqttClient & MqttClient) -> bool
     {
-        static uint32_t lastSeq = 0;
         static Timer timer(1000);
-        static BoilerControllerTask::TempertureState state = {0.0, 0.0, 0.0, 0.0, 0.0, false};
 
         if (timer.IsAlarmed())
         {
+            static BoilerControllerTask::TempertureState state = {0.0, 0.0, 0.0, 0.0, 0.0, false};
+            static uint32_t lastSeq = 0;
+
             auto const seq = boilerControllerTask.GetHeaterStateSequence();
             bool force = (lastSeq == 0);
+
             if ((seq != lastSeq) || force)
             {
                 BoilerControllerTask::TempertureState newState;
@@ -662,48 +710,201 @@ void HA_MqttClient::loop()
                 lastSeq = state._sequence;
             }
 
-            // Send the boiler state if it has changed or if forced - translate the state to a string
-            static BoilerControllerTask::HeaterState lastHeaterState = BoilerControllerTask::HeaterState(-1);
-            BoilerControllerTask::HeaterState currHeaterState = boilerControllerTask.GetHeaterState();
-
-            if (force || (currHeaterState != lastHeaterState))
-            {
-                if (!SendPropertyMsgStr(
-                    MqttClient, 
-                    boilerStateSensorBaseTopic, 
-                    _haSensorEnum, 
-                    BoilerControllerTask::GetHeaterStateDescription(currHeaterState)))
-                {
-                    return false;
-                }
-
-                lastHeaterState = currHeaterState;
-            }
-
-            // Send the fault reason if it has changed or if forced - translate the fault reason to a string
-            static BoilerControllerTask::FaultReason lastFaultReason = BoilerControllerTask::FaultReason(-1);
-            BoilerControllerTask::FaultReason currFaultReason = boilerControllerTask.GetFaultReason();
-
-            if (force || (currFaultReason != lastFaultReason))
-            {
-                if (!SendPropertyMsgStr(
-                    MqttClient, 
-                    faultReasonSensorBaseTopic, 
-                    _haSensorEnum, 
-                    BoilerControllerTask::GetFaultReasonDescription(currFaultReason)))
-                {
-                    return false;
-                }
-
-                lastFaultReason = currFaultReason;
-            }
-
             timer.SetAlarm(1000);
+        }
+
+        // Send the boiler state if it has changed or if forced - translate the state to a string
+        static BoilerControllerTask::HeaterState lastHeaterState = BoilerControllerTask::HeaterState(-1);
+        BoilerControllerTask::HeaterState currHeaterState = boilerControllerTask.GetHeaterState();
+
+        // TODO: Change the name of HeaterState to BoilerStateMachineState
+        if (currHeaterState != lastHeaterState)
+        {
+            logger.Printf(Logger::RecType::Info, "Sending Heater State: %s", BoilerControllerTask::GetHeaterStateDescription(currHeaterState)); 
+            if (!SendPropertyMsgStr(
+                MqttClient, 
+                boilerStateSensorBaseTopic, 
+                _haSensorEnum, 
+                BoilerControllerTask::GetHeaterStateDescription(currHeaterState)))
+            {
+                return false;
+            }
+
+            lastHeaterState = currHeaterState;
+        }
+
+        // Send the fault reason if it has changed or if forced - translate the fault reason to a string
+        static BoilerControllerTask::FaultReason lastFaultReason = BoilerControllerTask::FaultReason(-1);
+        BoilerControllerTask::FaultReason currFaultReason = boilerControllerTask.GetFaultReason();
+
+        if (currFaultReason != lastFaultReason)
+        {
+            if (!SendPropertyMsgStr(
+                MqttClient, 
+                faultReasonSensorBaseTopic, 
+                _haSensorEnum, 
+                BoilerControllerTask::GetFaultReasonDescription(currFaultReason)))
+            {
+                return false;
+            }
+
+            lastFaultReason = currFaultReason;
+        }
+
+        // Send the current boiler mode if needed
+        static BoilerControllerTask::BoilerMode lastBoilerMode = BoilerControllerTask::BoilerMode(-1);
+        BoilerControllerTask::BoilerMode currBoilerMode = boilerControllerTask.GetMode();
+
+        if (currBoilerMode != lastBoilerMode)
+        {
+            if (!SendPropertyMsgStr(
+                    MqttClient,
+                    boilerBaseTopic,
+                    _haWHMode,
+                    BoilerControllerTask::GetBoilerModeDescription(currBoilerMode)))
+            {
+                return false;
+            }
+
+            lastBoilerMode = currBoilerMode;
+        }
+
+        static BoilerControllerTask::TargetTemps lastTargetTemps = {-999.99, -999.99};
+        BoilerControllerTask::TargetTemps currTargetTemps; boilerControllerTask.GetTargetTemps(currTargetTemps);
+
+        if (currTargetTemps._setPoint != lastTargetTemps._setPoint)
+        {
+            if (!SendPropertyMsg(MqttClient, boilerBaseTopic, _haWHSetpoint, $CtoF(currTargetTemps._setPoint)))
+            {
+                return false;
+            }
+
+            lastTargetTemps._setPoint = currTargetTemps._setPoint;
         }
 
         return true;
     };
 
+    //** Support for subscription to Home Assistant topics
+    using NotificationHandler = std::function<bool(const char *)>;
+
+    class SubscribedTopic
+    {
+    public:
+        const char *_baseTopic;
+        const char *_topicSuffix;
+        int _baseTopicSize;
+        int _topicSuffixSize;
+        NotificationHandler& _handler;
+
+        SubscribedTopic(const char *BaseTopic, const char *TopicSuffix, NotificationHandler& Handler)
+            :   _baseTopic(BaseTopic),
+                _topicSuffix(TopicSuffix),
+                _handler(Handler)
+        {
+            _baseTopicSize = strlen(BaseTopic);
+            _topicSuffixSize = strlen(TopicSuffix);
+        }
+
+        SubscribedTopic() = delete;
+    };
+
+    //* Notification handlers for each MQTT subscription topic
+    static NotificationHandler HandleWHModeSet = [] (const char *Payload) -> bool
+    {
+        logger.Printf(Logger::RecType::Info, "Received WH Mode Set command: %s", Payload);
+        BoilerControllerTask::BoilerMode mode = BoilerControllerTask::GetBoilerModeFromDescription(Payload);
+        if (mode == BoilerControllerTask::BoilerMode::Undefined)
+        {
+            logger.Printf(Logger::RecType::Warning, "Invalid WH Mode Set command value: %s", Payload);
+            return false;
+        }
+
+        // Update the mode in the configuration and in the controller
+        boilerConfig.GetRecord()._mode = mode;
+        boilerConfig.Write();
+        boilerConfig.Begin();
+        if (!boilerConfig.IsValid())
+        {
+            logger.Printf(Logger::RecType::Warning, "Failed to write WH Mode Set command value to config: %s", Payload);
+            return false;
+        }
+
+        boilerControllerTask.SetMode(mode);
+
+        return true;
+    };
+
+    static NotificationHandler HandleWHSetpointSet = [] (const char *Payload) -> bool
+    {
+        logger.Printf(Logger::RecType::Info, "Received WH Setpoint Set command: %s", Payload);
+        float setpoint = $FtoC(atof(Payload));
+
+        BoilerControllerTask::TargetTemps targetTemps;
+        boilerControllerTask.GetTargetTemps(targetTemps);
+
+        // Update the setpoint in the configuration and in the controller
+        boilerConfig.GetRecord()._setPoint = setpoint;
+        boilerConfig.Write();
+        boilerConfig.Begin();
+        if (!boilerConfig.IsValid())
+        {
+            logger.Printf(Logger::RecType::Warning, "Failed to write WH Setpoint command value to config: %s", Payload);
+            return false;
+        }
+
+        targetTemps._setPoint = setpoint;
+        boilerControllerTask.SetTargetTemps(targetTemps);
+
+        return true;
+    };
+
+    static NotificationHandler HandleResetButtonCmd = [] (const char *Payload) -> bool
+    {
+        logger.Printf(Logger::RecType::Info, "Received Reset Button Event: %s", Payload);
+        boilerControllerTask.ResetIfSafe();
+        return true;
+    };
+
+    static NotificationHandler HandleStartButtonCmd = [] (const char *Payload) -> bool
+    {
+        logger.Printf(Logger::RecType::Info, "Received Start Button Event: %s", Payload);
+        boilerControllerTask.StartIfSafe();
+        return true;
+    };
+
+    static NotificationHandler HandleStopButtonCmd = [] (const char *Payload) -> bool
+    {
+        logger.Printf(Logger::RecType::Info, "Received Stop Button Event: %s", Payload);
+        boilerControllerTask.StopIfSafe();
+        return true;
+    };
+
+    static NotificationHandler HandleRebootButtonCmd = [] (const char *Payload) -> bool
+    {
+        logger.Printf(Logger::RecType::Info, "Received Reboot Button Event: %s", Payload);
+        logger.Printf(Logger::RecType::Info, "***rebooting***");
+        delay(1000);
+        NVIC_SystemReset();
+        $FailFast();
+        return true;
+    };
+
+
+    //* MQTT subscription topics table
+    static SubscribedTopic subscribedTopics[] =
+    {
+        SubscribedTopic(boilerBaseTopic, _haWHModeSet, HandleWHModeSet),
+        SubscribedTopic(boilerBaseTopic, _haWHSetpointSet, HandleWHSetpointSet),
+        SubscribedTopic(resetButtonBaseTopic, _haButtonCmd, HandleResetButtonCmd),
+        SubscribedTopic(startButtonBaseTopic, _haButtonCmd, HandleStartButtonCmd),
+        SubscribedTopic(stopButtonBaseTopic, _haButtonCmd, HandleStopButtonCmd),
+        SubscribedTopic(rebootButtonBaseTopic, _haButtonCmd, HandleRebootButtonCmd)
+    };
+    int subscribedTopicCount = sizeof(subscribedTopics) / sizeof(SubscribedTopic);
+
+    
+    
     //** State machine implementation for MQTT client
     static bool firstTime = true;
 
@@ -808,9 +1009,7 @@ void HA_MqttClient::loop()
                 return;
             }
 
-            mqttClient.poll();
-
-            if (publishConfigTimer.IsAlarmed())
+            if (publishConfigTimer.IsAlarmed())     // TODO: just make all /config, subscribe, and /avail work different states
             {
                 // Publish the Home Assistant /config JSON strings for each entity
                 logger.Printf(Logger::RecType::Info, "Sending /config messages to Home Assistant");
@@ -820,6 +1019,25 @@ void HA_MqttClient::loop()
                     state = State::Delay;
                     return;
                 }
+                logger.Printf(Logger::RecType::Info, "All /config messages sent to Home Assistant");
+
+                // Send all subscriptions
+                logger.Printf(Logger::RecType::Info, "Subscribing to Home Assistant topics");
+
+                for (int i = 0; i < subscribedTopicCount; i++)
+                {
+                    string topic = subscribedTopics[i]._baseTopic;          // TODO: use a stack buffer (prefix + suffix)
+                    topic += subscribedTopics[i]._topicSuffix;
+
+                    logger.Printf(Logger::RecType::Info, "Subscribing to topic: %s", topic.c_str());        // TODO: add log out level filter
+
+                    if (!mqttClient.subscribe(topic.c_str()))
+                    {
+                        logger.Printf(Logger::RecType::Critical, "Failed to subscribe to topic: %s - restarting", topic.c_str());
+                        state = State::Delay;
+                        return;
+                    }
+                }  
 
                 publishConfigTimer.SetAlarm(publishConfigTimer.FOREVER);
                 publishAvailTimer.SetAlarm(1000); // delay the /avail messages to be sent until after the /config messages have been sent
@@ -836,12 +1054,39 @@ void HA_MqttClient::loop()
                     return;
                 }
 
+                logger.Printf(Logger::RecType::Info, "All /avail messages sent to Home Assistant - now monitoring for incoming messages");
                 publishAvailTimer.SetAlarm(publishAvailTimer.FOREVER);
             }
 
             // Check for incoming messages
+            int msgSize = mqttClient.parseMessage();
+            if (msgSize > 0)
+            {
+                // Process the incoming message
+                String topic = std::move(mqttClient.messageTopic());
+                char payload[msgSize + 1];
+                int read = mqttClient.read((uint8_t*)&payload[0], msgSize);
+                $Assert(read == msgSize);
+                payload[msgSize] = '\0';
+                logger.Printf(Logger::RecType::Info, "Received message on topic: %s - payload: %s", topic.c_str(), payload);
 
-            // republish the Home Assistant /configs topic for each entity is something has changed (HA restart, etc) or some amount of time has passed
+                // Call the handler for the topic
+                int i;
+                for (i = 0; i < subscribedTopicCount; i++)
+                {
+                    if ((topic.length() == (subscribedTopics[i]._baseTopicSize + subscribedTopics[i]._topicSuffixSize))
+                        && (topic.startsWith(subscribedTopics[i]._baseTopic)) && (topic.endsWith(subscribedTopics[i]._topicSuffix)))
+                    {
+                        subscribedTopics[i]._handler(payload);      // Call the handler for the topic; given it the payload
+                        break;
+                    }
+                }
+                
+                if (i == subscribedTopicCount)
+                {
+                    logger.Printf(Logger::RecType::Warning, "Topic: %s not found in subscribedTopics table", topic.c_str());
+                }
+            }
 
             // Publish to Home Assistant any change of state for the Boiler for each entity
             if (!MonitorBoiler(mqttClient))

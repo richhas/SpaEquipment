@@ -128,6 +128,7 @@ void FinishStart()
 
     matrixTask.PutString("S03");
     logger.Begin(bootRecord.GetRecord().BootCount);
+    // logger.SetFilter(Logger::RecType::Progress);         // TODO: Walk through and set the RecType for things that are progress info to be Progress
 
     matrixTask.PutString("S04");
     tempSensorsConfig.Begin();
@@ -136,8 +137,9 @@ void FinishStart()
     boilerConfig.Begin();
     if (boilerConfig.IsValid() == false)
     {
-        boilerConfig.GetRecord()._setPoint = 38.0;
+        boilerConfig.GetRecord()._setPoint = $FtoC(74.0);
         boilerConfig.GetRecord()._hysteresis = 0.75;
+        boilerConfig.GetRecord()._mode = BoilerControllerTask::BoilerMode::Off;
         boilerConfig.Write();
         boilerConfig.Begin();
         $Assert(boilerConfig.IsValid());
@@ -216,6 +218,7 @@ void SetAllBoilerParametersFromConfig()
 
     boilerControllerTask.SetTargetTemps(temps);
     boilerControllerTask.SetTempSensorIds(sensorIds);
+    boilerControllerTask.SetMode(boilerConfig.GetRecord()._mode);
 }
 
 void MonitorBoiler()

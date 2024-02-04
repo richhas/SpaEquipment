@@ -337,20 +337,29 @@ void BoilerControllerTask::loop()
                     {
                         // Don't allow the following to happen until the temps have been read at least once; specifically in boilerInTemp
 
-                        // Now assert control over the heater based on current know temps
-                        // Compute the hard on and off temperature limits
-                        float const hardOffTemp = tempState._setPoint + tempState._hysteresis;
-                        float const hardOnTemp = tempState._setPoint - tempState._hysteresis;
+                        if ((_boilerMode == BoilerMode::Eco) || (_boilerMode == BoilerMode::Performance))
+                        {
+                            // We are in some sort of On state - assert control over the heater based on current know temps
+                            // Now assert control over the heater based on current know temps
+                            // Compute the hard on and off temperature limits
+                            float const hardOffTemp = tempState._setPoint + tempState._hysteresis;
+                            float const hardOnTemp = tempState._setPoint - tempState._hysteresis;
 
-                        if (tempState._boilerInTemp > hardOffTemp)
-                        {
-                            // The boiler in temp is above the hard off limit - turn off the heater
-                            digitalWrite(_heaterControlPin, false);
+                            if (tempState._boilerInTemp > hardOffTemp)
+                            {
+                                // The boiler in temp is above the hard off limit - turn off the heater
+                                digitalWrite(_heaterControlPin, false);
+                            }
+                            else if (tempState._boilerInTemp < hardOnTemp)
+                            {
+                                // The boiler in temp is below the hard on limit - turn on the heater
+                                digitalWrite(_heaterControlPin, true);
+                            }
                         }
-                        else if (tempState._boilerInTemp < hardOnTemp)
+                        else
                         {
-                            // The boiler in temp is below the hard on limit - turn on the heater
-                            digitalWrite(_heaterControlPin, true);
+                            // We are in some sort of Off state - turn off the heater
+                            digitalWrite(_heaterControlPin, false); // Make sure the heater is turned off
                         }
                     }
 
@@ -727,7 +736,22 @@ void BoilerControllerTask::ClearOneWireBusStats()
     }
 }
 
+// BoilerMode set/get
+BoilerControllerTask::BoilerMode BoilerControllerTask::GetMode()
+{
+    CriticalSection cs;
+    {
+        return _boilerMode;
+    }
+}
 
+void BoilerControllerTask::SetMode(BoilerControllerTask::BoilerMode Mode)
+{
+    CriticalSection cs;
+    {
+        _boilerMode = Mode;
+    }
+}
 
 //** Forground task command interface methods - these methods are thread safe
 bool BoilerControllerTask::IsBusy()         // Returns true if the task is busy processing a command
@@ -748,6 +772,17 @@ void BoilerControllerTask::Start()          // Starts the heater - only valid if
     }
 }
 
+void BoilerControllerTask::StartIfSafe()    // Starts the heater if it is safe to do so - only valid if the task is in the Halted state
+{
+    CriticalSection cs;
+    {
+        if ((_command == Command::Idle) && (_state == HeaterState::Halted))
+        {
+            _command = Command::Start;
+        }
+    }
+}
+
 void BoilerControllerTask::Stop()           // Stops the heater - only valid if the task is in the Running state
 {
     CriticalSection cs;
@@ -755,6 +790,17 @@ void BoilerControllerTask::Stop()           // Stops the heater - only valid if 
         $Assert(_command == Command::Idle);
         $Assert(_state == HeaterState::Running);
         _command = Command::Stop;
+    }
+}
+
+void BoilerControllerTask::StopIfSafe()     // Stops the heater if it is safe to do so - only valid if the task is in the Running state
+{
+    CriticalSection cs;
+    {
+        if ((_command == Command::Idle) && (_state == HeaterState::Running))
+        {
+            _command = Command::Stop;
+        }
     }
 }
 
@@ -767,6 +813,18 @@ void BoilerControllerTask::Reset()          // Resets the heater - only valid if
         _command = Command::Reset;
     }
 }
+
+void BoilerControllerTask::ResetIfSafe()    // Resets the heater if it is safe to do so - only valid if the task is in the Faulted state
+{
+    CriticalSection cs;
+    {
+        if ((_command == Command::Idle) && (_state == HeaterState::Faulted))
+        {
+            _command = Command::Reset;
+        }
+    }
+}
+
 
 //** Public data structure display methods
 void BoilerControllerTask::DisplayTemperatureState(Stream &output, const TempertureState &state, const char *prependString)

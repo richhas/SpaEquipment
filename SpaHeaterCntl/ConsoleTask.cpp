@@ -649,6 +649,7 @@ void ConsoleTask::ShowCurrentBoilerConfig(int PostLineFeedCount)
 
     printf(_stream, "   Set Point: %3.2fC (%3.2fF)\n", temp, $CtoF(temp));
     printf(_stream, "   Hysteresis: %2.2f (%3.2f-%3.2fC %3.2f-%3.2fF)\n", hysterisis, lowTemp, highTemp, $CtoF(lowTemp), $CtoF(highTemp));
+    printf(_stream, "   Mode: %s\n", BoilerControllerTask::GetBoilerModeDescription(boilerConfig.GetRecord()._mode));
 
     while (PostLineFeedCount-- > 0)
     {
@@ -670,10 +671,11 @@ void ConsoleTask::ShowCurrentBoilerState()
 {
     ShowCurrentBoilerConfig(0);
 
-    printf(_stream, "Boiler State: \n    HeaterState: %s\n    fReason: %s\n    Command: %s\n",
+    printf(_stream, "Boiler State: \n    HeaterState: %s\n    fReason: %s\n    Command: %s\n    Mode: %s\n",
            BoilerControllerTask::GetHeaterStateDescription(boilerControllerTask.GetHeaterState()),
            BoilerControllerTask::GetFaultReasonDescription(boilerControllerTask.GetFaultReason()),
-           BoilerControllerTask::GetCommandDescription(boilerControllerTask.GetCommand()));
+           BoilerControllerTask::GetCommandDescription(boilerControllerTask.GetCommand()),
+           BoilerControllerTask::GetBoilerModeDescription(boilerControllerTask.GetMode()));
 
     /* get and display the: TemperatureState, TargetTemps, and TempSensorIds */
     BoilerControllerTask::TempertureState tempState;
