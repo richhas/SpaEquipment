@@ -32,6 +32,10 @@ const char* Logger::ToString(Logger::RecType From)
         case RecType::Info:
             return "INFO";
             break;
+        
+        case RecType::Progress:
+            return "PROG";
+            break;
 
         case RecType::Warning:
             return "WARN";

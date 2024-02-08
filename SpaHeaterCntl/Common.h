@@ -11,24 +11,9 @@
 #include <EEPROM.h>
 
 //** Hard Fault primitives 
-extern void FailFast(char* FileName, int LineNumber);
+extern void FailFast(const char* FileName, int LineNumber);
 #define $Assert(c) if (!(c)) FailFast(__FILE__, __LINE__);
 #define $FailFast() FailFast(__FILE__, __LINE__);
-
-//* Common status codes
-enum class Status : int16_t
-{
-    //* Non-error status' >= 0
-    Success = 0,
-    Busy,
-    Cancelled,
-
-    //* Error status' < 0
-    Timeout = -1,
-    MessageHeaderCRCFailure = -2,
-    MessageTooLarge = -3,
-    MessageBodyCRCFailure = -4,
-};
 
 /**
  * @brief A class that represents a critical section.
@@ -37,6 +22,10 @@ enum class Status : int16_t
  * in multi-threaded environments. The constructor enters the critical section,
  * and the destructor exits the critical section automatically when the object
  * goes out of scope.
+ *
+ * The CriticalSection class uses the FreeRTOS taskENTER_CRITICAL and taskEXIT_CRITICAL
+ * NOTE: This class is not reentrant. There will be lockups if the same thread tries to 
+ * enter the critical section twice.
  */
 class CriticalSection
 {
@@ -120,64 +109,22 @@ public:
     static constexpr int GetSize() { return TSize; }
 };
 
-/**
- * @brief Definition of the shared buffer.
- * 
- * The shared buffer is defined as a static array of size TSize.
- * Each instance of the SharedBuffer class shares the same buffer.
- *
- * The buffer is initialized to zero.
- * 
- * @tparam TSize The size of the buffer.
- */
 template <int TSize>
 uint8_t SharedBuffer<TSize>::_buffer[TSize] = {0};
 
-/**
- * @brief Definition of the semaphore lock.
- * 
- * The semaphore lock is defined as a static member of the SharedBuffer class.
- * It is used to protect the shared buffer from concurrent access.
- * 
- * @tparam TSize The size of the buffer.
- */
 template <int TSize>
 SemaphoreHandle_t SharedBuffer<TSize>::_lock = NULL;
 
-/**
- * @brief Constructor for the SharedBuffer class.
- * 
- * The constructor initializes the semaphore lock if it has not been initialized before.
- * It uses a static volatile flag to ensure that the initialization is performed only once.
- * The constructor also takes the semaphore lock to ensure exclusive access to the shared buffer.
- * 
- * @tparam TSize The size of the buffer.
- */
 template <int TSize>
 SharedBuffer<TSize>::SharedBuffer()
 {
 }
 
-/**
- * @brief Destructor for the SharedBuffer class.
- * 
- * The destructor releases the semaphore lock to allow other threads to access the shared buffer.
- * 
- * @tparam TSize The size of the buffer.
- */
 template <int TSize>
 SharedBuffer<TSize>::~SharedBuffer()
 {
 }
 
-/**
- * @brief Get a handle to the shared buffer.
- * 
- * This static method returns a handle to the shared buffer.
- * 
- * @tparam TSize The size of the buffer.
- * @return Handle A handle to the shared buffer.
- */
 template <int TSize>
 typename SharedBuffer<TSize>::Handle SharedBuffer<TSize>::GetHandle()
 {
@@ -250,14 +197,13 @@ SharedBuffer<TSize>::Handle::~Handle()
 
 //* Thread-safe shared buffers
 extern SharedBuffer<256> sharedPrintfBuffer;
-
 extern int printf(Stream& ToStream, const char* Format, ...);
 
-// Helper for 64-bit formatted *printf output
+//* Helper for 64-bit formatted *printf output
 #define $PRIX64 "08X%08X"
 #define To$PRIX64(v) ((uint32_t)(v >> 32)),((uint32_t)v)
 
-// Variable arguments access support
+//* Variable arguments access support
 //
 // Usage: 
 //
@@ -271,21 +217,6 @@ constexpr uint32_t (* VarArgsBase(void* BaseMinusOne)) [0]
 {
     return ((uint32_t (*)[0])(((uint32_t*)BaseMinusOne) + 1));
 }
-
-
-//** CRC Support
-/*
-class CRC
-{
-public:
-    // static uint32_t CRC32(uint32_t* Buffer, uint16_t Words, uint32_t StartingCRC = DMAC_CRCDATAIN_RESETVALUE);
-    static uint32_t CRC32(byte* Buffer, uint16_t Size, uint32_t StartingCRC = DMAC_CRCDATAIN_RESETVALUE);
-    static uint16_t CRC16(byte* Buffer, uint16_t Size, uint16_t StartingCRC = DMAC_CRCDATAIN_RESETVALUE);
-
-private:
-    static void DoCRC(uint32_t AlgType, byte* Buffer, uint16_t Size, uint32_t StartingCRC);
-};
-*/
 
 //** Time/Timer support
 class Timer
@@ -301,52 +232,7 @@ private:
     uint32_t    _alarmTime;         // msecs
 };
 
-
-//** Stream serializible interface
-class ISerializable
-{
-public:
-    virtual void ToStream(Stream&) = 0;
-};
-
-//** UUID/GUID struct
-struct UUID
-{
-    union 
-    {
-        struct
-        {
-            uint64_t    _lowDWord;
-            uint64_t    _highDWord;
-        };
-        uint32_t        _words[4];
-    };
-};
-
-//** Generalized Arduino processing task class
-class ArduinoTask
-{
-public:
-    virtual void setup() = 0;
-    virtual void loop() = 0;
-
-protected:
-#if SAMD51_SERIES
-    UUID GetSystemID()
-    {
-        UUID result;
-
-        result._words[0] = *((uint32_t*)0x008061FC);
-        result._words[1] = *((uint32_t*)0x00806010);
-        result._words[2] = *((uint32_t*)0x00806014);
-        result._words[3] = *((uint32_t*)0x00806018);
-
-        return result;
-    }
-#endif
-};
-
-/* EEPROM config support */
+/** EEPROM config support */
 // The first bytes of the EEPROM are used to store the configuration for this device
 //
 #pragma pack(push, 1)
@@ -440,4 +326,64 @@ public:
     }
 };
 #pragma pack(pop) 
+
+
+//** Generalized Arduino processing task class
+class ArduinoTask
+{
+public:
+    virtual void setup() = 0;
+    virtual void loop() = 0;
+};
+
+
+//** State machine support
+/**
+ * @brief Represents the current state of a given state machine.
+ * 
+ * This class template is used to define the current state variable of a state machine. It enforces 
+ * that the state type is an enum class. The class provides methods to change the state, check if it 
+ * is the first time a current state has been entered, and convert the state to its underlying enum value.
+ * 
+ * @tparam TStatesEnum The enum type representing the states.
+ */
+template <typename TStatesEnum>
+class StateMachineState
+{
+    static_assert(std::is_enum<TStatesEnum>::value, "TStatesEnum must be an enum class");
+
+public:
+    StateMachineState() = delete;
+    StateMachineState(const StateMachineState&) = delete;
+    StateMachineState(const StateMachineState&&) = delete;
+    StateMachineState &operator=(const StateMachineState &) = delete;
+    StateMachineState &operator=(const StateMachineState&&) = delete;
+    
+    inline StateMachineState(TStatesEnum FirstState) : _state(FirstState), _firstTime(true) {}
+
+    inline void ChangeState(TStatesEnum To)
+    {
+        _state = To;
+        _firstTime = true;
+    }
+
+    inline explicit operator TStatesEnum() const
+    {
+        return _state;
+    }
+
+    inline bool IsFirstTime()  // Oneshot per change of state (ChangeState() call)
+    {
+        bool firstTime = _firstTime;
+        _firstTime = false;
+        return firstTime;
+    }
+
+private:
+    TStatesEnum _state;
+    bool _firstTime;
+};
+
+
+
 

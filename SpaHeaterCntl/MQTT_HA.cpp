@@ -2,10 +2,7 @@
 // HA_MQTT class implementation
 
 #include "SpaHeaterCntl.h"
-
-#define MQTT_CLIENT_DEBUG 1
 #include <ArduinoMqttClient.h>
-
 #include <functional>
 
 namespace HA_Mqtt
@@ -19,11 +16,17 @@ namespace HA_Mqtt
         uint16_t _brokerPort;
 
         // MQTT Client config
+        // TODO: Add max sizes to these fields
+        constexpr static int _maxUsernameLen = 16;
+        constexpr static int _maxPasswordLen = 16;
+        constexpr static int _maxClientIdLen = 16;
         char _clientId[16];
         char _username[16];
         char _password[16];
 
         // HA MQTT config
+        constexpr static int _maxBaseHATopicLen = 32;
+        constexpr static int _maxHaDeviceNameLen = 32;
         char _baseHATopic[32];
         char _haDeviceName[32];
     };
@@ -97,6 +100,8 @@ namespace HA_Mqtt
     }
 
     //* Utility function for expanding a JSON template string using passed parameters into a Print object
+    //  For example this function is used to expand a JSON template string direct;ly into a MqttClient 
+    //  message stream
     size_t ExpandJson(Print &To, const char *JsonFormat, ...)
     {
         uint32_t(*va_list)[0] = VarArgsBase(&JsonFormat);
@@ -141,6 +146,7 @@ namespace HA_Mqtt
         return result;
     }
 
+    
     //* Home Assistant MQTT Namespace Names
     static constexpr char _defaultBaseTopic[] = "homeassistant";
     static constexpr char _haAvailTopic[] = "status";
@@ -148,10 +154,10 @@ namespace HA_Mqtt
         static constexpr char _haAvailOffline[] = "offline";
 
     static constexpr char _defaultDeviceName[] = "SpaHeater";
-    static constexpr char _defaultBoilerName[] = "boiler";                  // TODO: Fix naming convention to use Upper Camel Case
-    static constexpr char _defaultAmbientTempName[] = "ambientTemp";
-    static constexpr char _defaultBoilerInTempName[] = "boilerInTemp";
-    static constexpr char _defaultBoilerOutTempName[] = "boilerOutTemp";
+    static constexpr char _defaultBoilerName[] = "Boiler"; 
+    static constexpr char _defaultBoilerInTempName[] = "BoilerInTemp";
+    static constexpr char _defaultBoilerOutTempName[] = "BoilerOutTemp";
+    static constexpr char _defaultAmbientTempName[] = "AmbientTemp";
     static constexpr char _defaultHeaterStateName[] = "HeatingElement";
     static constexpr char _defaultBoilerStateName[] = "BoilerState";
     static constexpr char _defaultFaultReasonName[] = "FaultReason";
@@ -160,6 +166,8 @@ namespace HA_Mqtt
     static constexpr char _defaultStopButtonName[] = "StopButton";
     static constexpr char _defaultRebootButtonName[] = "RebootButton";
 
+    static constexpr char _commonAvailTopicTemplate[] = "TinyBus/%0/avail";
+    char*   commonAvailTopic;      // Common Avail Topic expanded string
 
 
     // MQTT Topic suffixes for Home Assistant MQTT supported platforms
@@ -200,7 +208,7 @@ namespace HA_Mqtt
                 "'performance'\n"
             "],\n"
 
-            "'avty_t' : '~/avail',\n"
+            "'avty_t' : 'TinyBus/%1/avail',\n"
             "'avty_tpl' : '{{ value_json }}',\n"
             "'mode_stat_t': '~/mode',\n"
             "'mode_stat_tpl' : '{{ value_json }}',\n"
@@ -236,7 +244,7 @@ namespace HA_Mqtt
             "'name': '%2',\n"
             "'dev_cla' : 'temperature',\n"
             "'unit_of_meas' : '°F',\n"
-            "'avty_t' : '~/avail',\n"
+            "'avty_t' : 'TinyBus/%1/avail',\n"
             "'avty_tpl' : '{{ value_json }}',\n"
             "'stat_t' : '~/temperature',\n"    
             "'uniq_id' : '%2',\n"
@@ -261,7 +269,7 @@ namespace HA_Mqtt
         "{\n" // Parms: <base_topic>, <device-name>, <entity-name>
             "'~' : '%0/binary_sensor/%2',\n"
             "'name': '%2',\n"
-            "'avty_t' : '~/avail',\n"
+            "'avty_t' : 'TinyBus/%1/avail',\n"
             "'avty_tpl' : '{{ value_json }}',\n"
             "'stat_t' : '~/state',\n"
             "'val_tpl' : '{{ value_json }}',\n"
@@ -288,7 +296,7 @@ namespace HA_Mqtt
             "'~' : '%0/sensor/%2',\n"
             "'name': '%2',\n"
             "'device_class' : 'enum',\n"
-            "'avty_t' : '~/avail',\n"
+            "'avty_t' : 'TinyBus/%1/avail',\n"
             "'avty_tpl' : '{{ value_json }}',\n"
             "'stat_t' : '~/state',\n"
             "'val_tpl' : '{{ value_json }}',\n"
@@ -311,18 +319,18 @@ namespace HA_Mqtt
     // JSON template for Home Assistant MQTT button configuration
     static constexpr char ButtonConfigJsonTemplate[] =
         "{\n" // Parms: <base_topic>, <device-name>, <entity-name>
-        "'~' : '%0/button/%2',\n"
-        "'name': '%2',\n"
-        "'avty_t' : '~/avail',\n"
-        "'avty_tpl' : '{{ value_json }}',\n"
-        "'command_topic' : '~/cmd',\n"
-        "'device_class' : 'restart',\n"
-        "'uniq_id' : '%2',\n"
-        "'dev':\n"
-        "{\n"
-        "'identifiers' : ['01'],\n"
-        "'name' : '%1'\n"
-        "}\n"
+            "'~' : '%0/button/%2',\n"
+            "'name': '%2',\n"
+            "'avty_t' : 'TinyBus/%1/avail',\n"
+            "'avty_tpl' : '{{ value_json }}',\n"
+            "'command_topic' : '~/cmd',\n"
+            "'device_class' : 'restart',\n"
+            "'uniq_id' : '%2',\n"
+            "'dev':\n"
+            "{\n"
+                "'identifiers' : ['01'],\n"
+                "'name' : '%1'\n"
+            "}\n"
         "}\n";
 
 
@@ -359,6 +367,12 @@ namespace HA_Mqtt
     };
 
     // Describes all Home Assistant entities - for building the /config and /avail messages
+    // TODO: Enhance this to support the scheduling of the sending of /config and /avail messages. A Timer() is
+    //       instance& will be carried with each entry. For each entity above we will declare such a Timer() instance.
+    //       There will be a method that looks at one entry per call and if the timer is expired the corresponding /config
+    //       and /avail messages will be sent. The timer will be reset. When the method does detect an Alarm, it will
+    //       will send the /config and then one the next call, it will send the /avail message... This timer needs to
+    //       also cause the sending of related property messages. 
     HaEntityDesc _entityDescs[] = 
     {
         HaEntityDesc(_defaultBoilerName, BoilerConfigJsonTemplate, BoilerBaseTopicJsonTemplate, &boilerBaseTopic, &expandedMsgSizeOfBoilerConfigJson),
@@ -414,6 +428,12 @@ namespace HA_Mqtt
             *desc._ExpandedMsgSizeResult = ExpandJson(counter, desc._ConfigJsonTemplate, Config->GetRecord()._baseHATopic, Config->GetRecord()._haDeviceName, desc._EntityName);
             $Assert(*desc._ExpandedMsgSizeResult > 0);
         }
+
+        //* Build the common avail topic string
+        int sizeNeeded = ExpandJson(counter, _commonAvailTopicTemplate, Config->GetRecord()._haDeviceName) + 1;
+        commonAvailTopic = new char[sizeNeeded];
+        BufferPrinter printer(commonAvailTopic, sizeNeeded);
+        $Assert(ExpandJson(printer, _commonAvailTopicTemplate, Config->GetRecord()._haDeviceName) == sizeNeeded - 1);
     }
 
     //* Flash store for MQTT configuration
@@ -421,10 +441,14 @@ namespace HA_Mqtt
     static_assert(PS_MQTTBrokerConfigBlkSize >= sizeof(FlashStore<HA_MqttConfig, PS_MQTTBrokerConfigBase>));
 } // namespace HA_Mqtt
 
+
 using namespace HA_Mqtt;
 
 HA_MqttClient mqttClient;
 
+
+//** HA_MqttClient class implementation - Setup for the MQTT client task. 
+//   This function is called from the main setup() function
 void HA_MqttClient::setup()
 {
     logger.Printf(Logger::RecType::Info, "mqttClientTask is starting");
@@ -454,6 +478,9 @@ void HA_MqttClient::setup()
     InitStrings(&mqttConfig);
 }
 
+
+//** Main task loop - implements the state machine for the MQTT client
+//   This function is called from the main loop() function
 void HA_MqttClient::loop()
 {
     //** local support functions for the state machine
@@ -479,8 +506,8 @@ void HA_MqttClient::loop()
         return status;
     };
 
-    //* Send a /config JSON message to Home Assistant for a given entity
-    static auto SendConfigJSON = [&BeginMessage](
+    //* Send a /config JSON message to Home Assistant for a given entity (topic)
+    static auto SendConfigJSON = [](
         MqttClient &MqttClient,
         const char *BaseTopic,
         const char *BaseEntityTopic,
@@ -514,45 +541,17 @@ void HA_MqttClient::loop()
         return true;
     };
 
-    //* Send all /config JSON messages to Home Assistant for all entities
-    static auto SendAllConfigMsgs = [&SendConfigJSON](MqttClient &MqttClient) -> bool
+   //* Send a /avail message to Home Assistant
+    static auto SendOnlineAvailMsg = [](MqttClient &MqttClient) -> bool
     {
-        // TODO: Consider clearing the config topic before sending the /config messages
-        for (int i = 0; i < _entityDescCount; i++)
-        {
-            HaEntityDesc& desc = _entityDescs[i];
-            if (!SendConfigJSON(
-                MqttClient, 
-                mqttConfig.GetRecord()._baseHATopic, 
-                *desc._BaseTopicResult, 
-                mqttConfig.GetRecord()._haDeviceName, 
-                desc._EntityName, desc._ConfigJsonTemplate, 
-                *desc._ExpandedMsgSizeResult))
-            {
-                return false;
-            }
-        }
-
-       return true;
-    };
-
-    //* Send a /avail message to Home Assistant for a given entity
-    static auto SendAvailMsg = [&BeginMessage](
-        MqttClient &MqttClient,
-        const char *BaseTopic,
-        const char *BaseEntityTopic,
-        const char *EntityName,
-        const char *AvailStatus) -> bool
-    {
-        int status = BeginMessage(MqttClient, BaseEntityTopic, _haAvail);
+        int status = MqttClient.beginMessage(commonAvailTopic);
         if (!status)
         {
             logger.Printf(Logger::RecType::Warning, "HA_MqttClient: Failed to begin message");
             return false;
         }
 
-        // Write the /avail message body JSON string directly into the message stream
-        size_t size = printf(MqttClient, "\"%s\"", AvailStatus);
+        size_t size = MqttClient.print("\"online\"");
         if (size == 0)
         {
             logger.Printf(Logger::RecType::Warning, "HA_MqttClient: Failed to write /avail message body JSON string");
@@ -569,23 +568,8 @@ void HA_MqttClient::loop()
         return true;
     };
 
-    //* Send all /avail messages to Home Assistant for all entities
-    static auto SendAllOnlineAvailMsgs = [&SendAvailMsg](MqttClient &MqttClient) -> bool
-    {
-        for (int i = 0; i < _entityDescCount; i++)
-        {
-            HaEntityDesc& desc = _entityDescs[i];
-            if (!SendAvailMsg(MqttClient, mqttConfig.GetRecord()._baseHATopic, *desc._BaseTopicResult, desc._EntityName, _haAvailOnline))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    };
-
     //* Send a float property message to Home Assistant for a given entity
-    static auto SendPropertyMsg = [&BeginMessage](
+    static auto SendPropertyMsg = [](
         MqttClient &MqttClient,
         const char *BaseEntityTopic,
         const char *PropertyName,
@@ -617,7 +601,7 @@ void HA_MqttClient::loop()
     };
 
     //* Send a string property message to Home Assistant for a given entity
-    static auto SendPropertyMsgStr = [&BeginMessage](
+    static auto SendPropertyMsgStr = [](
         MqttClient &MqttClient,
         const char *BaseEntityTopic,
         const char *PropertyName,
@@ -648,14 +632,26 @@ void HA_MqttClient::loop()
         return true;
     };
     
-    //* Monitor the Boiler State Machine for changes in state and send any changes to Home Assistant
-    static auto MonitorBoiler = [&SendPropertyMsg, &SendPropertyMsgStr](MqttClient & MqttClient) -> bool
+    //* Monitor the Boiler State Machine for changes in state and send any changes to Home Assistant. All updated
+    //  properties are sent to Home Assistant as separate messages from this function.
+    static auto MonitorBoiler = [](MqttClient & MqttClient) -> bool
     {
+        // TODO: This needs to become a state machine that services the 1sec items and also the high frequency items
+        //       The state machine has at least teo states: CalcWork and SendWork. The CalcWork state is where the
+        //       state machine calculates the work to be done and the SendWork state is where the state machine 
+        //       sends each planned message - one per call - until all work has been done for the cycle. The state
+        //       machine then transitions back to the CalcWork state. In the CalcWork state, the state machine
+        //       first the 1sec timer is checked and if it is alarmed, the state machine calculates the work to be
+        //       done and transitions. The high frequency items are then checked and if any have changed state, they
+        //       are added to the work list. The state machine then transitions to the SendWork state. In the SendWork
+        //       state, the state machine sends one message from the work list per cycle (call) until the work list is
+        //       empty. The state machine then transitions back to the CalcWork state.
+        
         static Timer timer(1000);
 
         if (timer.IsAlarmed())
         {
-            static BoilerControllerTask::TempertureState state = {0.0, 0.0, 0.0, 0.0, 0.0, false};
+            static BoilerControllerTask::TempertureState state = {0, 0.0, 0.0, 0.0, 0.0, 0.0, false};
             static uint32_t lastSeq = 0;
 
             auto const seq = boilerControllerTask.GetHeaterStateSequence();
@@ -677,6 +673,8 @@ void HA_MqttClient::loop()
                         return false;
                     }
                 }
+
+                /* Covered below - more frequently: Pull eventually
                 if (force || (newState._setPoint != state._setPoint))
                 {
                     if (!SendPropertyMsg(MqttClient, boilerBaseTopic, _haWHSetpoint, $CtoF(newState._setPoint)))
@@ -684,6 +682,8 @@ void HA_MqttClient::loop()
                         return false;
                     }
                 }
+                */
+
                 if (force || (newState._boilerOutTemp != state._boilerOutTemp))
                 {
                     if (!SendPropertyMsg(MqttClient, boilerOutThermometerBaseTopic, _haSensorTemp, $CtoF(newState._boilerOutTemp)))
@@ -714,18 +714,17 @@ void HA_MqttClient::loop()
         }
 
         // Send the boiler state if it has changed or if forced - translate the state to a string
-        static BoilerControllerTask::HeaterState lastHeaterState = BoilerControllerTask::HeaterState(-1);
-        BoilerControllerTask::HeaterState currHeaterState = boilerControllerTask.GetHeaterState();
+        static BoilerControllerTask::StateMachineState lastHeaterState = BoilerControllerTask::StateMachineState(-1);
+        BoilerControllerTask::StateMachineState currHeaterState = boilerControllerTask.GetStateMachineState();
 
-        // TODO: Change the name of HeaterState to BoilerStateMachineState
         if (currHeaterState != lastHeaterState)
         {
-            logger.Printf(Logger::RecType::Info, "Sending Heater State: %s", BoilerControllerTask::GetHeaterStateDescription(currHeaterState)); 
+            logger.Printf(Logger::RecType::Info, "Sending Heater State: %s", BoilerControllerTask::GetStateMachineStateDescription(currHeaterState)); 
             if (!SendPropertyMsgStr(
                 MqttClient, 
                 boilerStateSensorBaseTopic, 
                 _haSensorEnum, 
-                BoilerControllerTask::GetHeaterStateDescription(currHeaterState)))
+                BoilerControllerTask::GetStateMachineStateDescription(currHeaterState)))
             {
                 return false;
             }
@@ -785,29 +784,8 @@ void HA_MqttClient::loop()
         return true;
     };
 
-    //** Support for subscription to Home Assistant topics
-    using NotificationHandler = std::function<bool(const char *)>;
-
-    class SubscribedTopic
-    {
-    public:
-        const char *_baseTopic;
-        const char *_topicSuffix;
-        int _baseTopicSize;
-        int _topicSuffixSize;
-        NotificationHandler& _handler;
-
-        SubscribedTopic(const char *BaseTopic, const char *TopicSuffix, NotificationHandler& Handler)
-            :   _baseTopic(BaseTopic),
-                _topicSuffix(TopicSuffix),
-                _handler(Handler)
-        {
-            _baseTopicSize = strlen(BaseTopic);
-            _topicSuffixSize = strlen(TopicSuffix);
-        }
-
-        SubscribedTopic() = delete;
-    };
+    //** Support for subscription notification and handling of Home Assistant topics
+    using NotificationHandler = std::function<bool(const char *)>;  // A subscription notification handler function type
 
     //* Notification handlers for each MQTT subscription topic
     static NotificationHandler HandleWHModeSet = [] (const char *Payload) -> bool
@@ -890,8 +868,29 @@ void HA_MqttClient::loop()
         return true;
     };
 
+    //* Describes a Home Assistant MQTT subscription topic and its notification handler
+    class SubscribedTopic
+    {
+    public:
+        const char *_baseTopic;
+        const char *_topicSuffix;
+        int _baseTopicSize;
+        int _topicSuffixSize;
+        NotificationHandler &_handler;
 
-    //* MQTT subscription topics table
+        SubscribedTopic(const char *BaseTopic, const char *TopicSuffix, NotificationHandler &Handler)
+            : _baseTopic(BaseTopic),
+              _topicSuffix(TopicSuffix),
+              _handler(Handler)
+        {
+            _baseTopicSize = strlen(BaseTopic);
+            _topicSuffixSize = strlen(TopicSuffix);
+        }
+
+        SubscribedTopic() = delete;
+    };
+
+    //* Table of all subscribed topics
     static SubscribedTopic subscribedTopics[] =
     {
         SubscribedTopic(boilerBaseTopic, _haWHModeSet, HandleWHModeSet),
@@ -901,37 +900,60 @@ void HA_MqttClient::loop()
         SubscribedTopic(stopButtonBaseTopic, _haButtonCmd, HandleStopButtonCmd),
         SubscribedTopic(rebootButtonBaseTopic, _haButtonCmd, HandleRebootButtonCmd)
     };
-    int subscribedTopicCount = sizeof(subscribedTopics) / sizeof(SubscribedTopic);
+    static int subscribedTopicCount = sizeof(subscribedTopics) / sizeof(SubscribedTopic);
 
-    
-    
+    //* Notification dispatcher for incoming MQTT messages
+    static auto OnMessage = [](int msgSize, MqttClient &Client) -> void
+    {
+        // Process the incoming message
+        String topic = std::move(Client.messageTopic());
+        char payload[msgSize + 1];
+        int read = Client.read((uint8_t *)&payload[0], msgSize);
+        $Assert(read == msgSize);
+        payload[msgSize] = '\0';
+        logger.Printf(Logger::RecType::Info, "Received message on topic: %s - payload: %s", topic.c_str(), payload);
+
+        // Call the handler for the topic
+        int i;
+        for (i = 0; i < subscribedTopicCount; i++)
+        {
+            if ((topic.length() == (subscribedTopics[i]._baseTopicSize + subscribedTopics[i]._topicSuffixSize)) 
+                                    && (topic.startsWith(subscribedTopics[i]._baseTopic)) 
+                                    && (topic.endsWith(subscribedTopics[i]._topicSuffix)))
+            {
+                subscribedTopics[i]._handler(payload); // Call the handler for the topic; given it the payload
+                break;
+            }
+        }
+
+        if (i == subscribedTopicCount)
+        {
+            logger.Printf(Logger::RecType::Warning, "Topic: %s not found in subscribedTopics table", topic.c_str());
+        }
+    };
+
+    //******************************************************************************
     //** State machine implementation for MQTT client
-    static bool firstTime = true;
-
     enum class State
     {
         WaitForWiFi,
         DelayAfterWiFiConnected,
         Delay,
         ConnectingToBroker,
+        SendSubscriptions,
+        SendConfigs,
+        SendOnlineAvailMsg,
         Connected
     };
 
-    static State state;
+    static StateMachineState<State> state(State::WaitForWiFi);
     static Timer delayTimer;
     static WiFiClient wifiClient;
     static MqttClient mqttClient(wifiClient);
     static int wifiStatus;
-    static Timer publishConfigTimer;
-    static Timer publishAvailTimer;
 
-    if (firstTime)
-    {
-        state = State::WaitForWiFi;
-        firstTime = false;
-    }
 
-    switch (state)
+    switch ((State)state)
     {
         case State::WaitForWiFi:
         {
@@ -939,12 +961,12 @@ void HA_MqttClient::loop()
             if (wifiStatus == WL_CONNECTED)
             {   
                 delayTimer.SetAlarm(4000);
-                state = State::DelayAfterWiFiConnected;
+                state.ChangeState(State::DelayAfterWiFiConnected);
             }
             else
             {
                 logger.Printf(Logger::RecType::Info, "Waiting for WiFi to connect");
-                state = State::Delay;
+                state.ChangeState(State::Delay);
                 delayTimer.SetAlarm(5000);
             }
         }
@@ -955,7 +977,7 @@ void HA_MqttClient::loop()
             mqttClient.stop();
             if (delayTimer.IsAlarmed())
             {
-                state = State::WaitForWiFi;
+                state.ChangeState(State::WaitForWiFi);
             }
         }
         break;
@@ -964,7 +986,7 @@ void HA_MqttClient::loop()
         {
             if (delayTimer.IsAlarmed())
             {
-                state = State::ConnectingToBroker;
+                state.ChangeState(State::ConnectingToBroker);
             }
         }
         break;
@@ -983,116 +1005,141 @@ void HA_MqttClient::loop()
 
             if (!mqttClient.connect(brokerIP, mqttConfig.GetRecord()._brokerPort))
             {
+                // TODO: Keep track of the number of failed attempts to connect to the broker. If it exceeds a threshold and
+                // there are no other network connections, then reset the WiFi.
                 logger.Printf(Logger::RecType::Critical, "Failed to connect to MQTT Broker - delaying 5 secs and retrying");
                 delayTimer.SetAlarm(5000);
-                state = State::Delay;
+                state.ChangeState(State::Delay);
                 return;
             }
 
             logger.Printf(Logger::RecType::Info, "Connected to MQTT Broker - publishing initial /config and /avail messages to Home Assistant");   
 
-            publishConfigTimer.SetAlarm(0);                         // Cause the /config messages to be sent immediately
-            publishAvailTimer.SetAlarm(publishAvailTimer.FOREVER);  // delay the /avail messages to be sent until after the /config messages have been sent
+            // Set the message handler for incoming messages
+            mqttClient.onMessage([](int messageSize) -> void { OnMessage(messageSize, mqttClient); } );
 
             // Subscribe to all the Home Assistant incoming topics for each entity
-            state = State::Connected;
+            state.ChangeState(State::SendSubscriptions);
         }
         break;
 
+        case State::SendSubscriptions:
+        {
+            // Subscribe to all the Home Assistant incoming topics of interest - only one subscription per call
+            // to loop() to allow other network related tasks to be performed between each subscription
+            static int ix;
+
+            if (state.IsFirstTime())
+            {
+                ix = 0;
+            }
+
+            if (ix < subscribedTopicCount)
+            {
+                string topic = subscribedTopics[ix]._baseTopic;          // TODO: use a stack buffer (prefix + suffix)
+                topic += subscribedTopics[ix]._topicSuffix;
+
+                logger.Printf(Logger::RecType::Info, "Subscribing to topic: %s", topic.c_str());
+
+                if (!mqttClient.subscribe(topic.c_str()))
+                {
+                    logger.Printf(Logger::RecType::Critical, "Failed to subscribe to topic: %s - restarting", topic.c_str());
+                    state.ChangeState(State::Delay);
+                    return;
+                }
+
+                ix++;
+            }
+            else
+            {
+                logger.Printf(Logger::RecType::Info, "All subscriptions sent to Home Assistant - now sending /config messages");
+                state.ChangeState(State::SendConfigs);
+            }
+        }
+        break;
+
+        case State::SendConfigs:
+        {
+            // Publish the Home Assistant /config JSON strings for each entity - only one /config message per call
+            // to loop() to allow other tasks to be performed between each /config message
+            static int ix;
+
+            if (state.IsFirstTime())
+            {
+                ix = 0;
+            }
+
+            if (ix < _entityDescCount)
+            {
+                HaEntityDesc &desc = _entityDescs[ix];
+                logger.Printf(Logger::RecType::Info, "Sending /config message for entity: %s", desc._EntityName);
+                if (!SendConfigJSON(
+                        mqttClient,
+                        mqttConfig.GetRecord()._baseHATopic,
+                        *desc._BaseTopicResult,
+                        mqttConfig.GetRecord()._haDeviceName,
+                        desc._EntityName, desc._ConfigJsonTemplate,
+                        *desc._ExpandedMsgSizeResult))
+                {
+                    logger.Printf(Logger::RecType::Critical, "Failed to send /config message for entity: %s - restarting", desc._EntityName);
+                    state.ChangeState(State::Delay);
+                    return;
+                }
+            }
+            else
+            {
+                logger.Printf(Logger::RecType::Info, "All /config messages sent to Home Assistant - now sending /avail message");
+                state.ChangeState(State::SendOnlineAvailMsg);
+            }
+
+            ix++;
+        }
+        break;
+
+        case State::SendOnlineAvailMsg:
+        {
+            // Tell Home Assistant that all entities are available
+            if (!SendOnlineAvailMsg(mqttClient))
+            {
+                logger.Printf(Logger::RecType::Critical, "Failed to send /avail messages to Home Assistant - restarting");
+                state.ChangeState(State::Delay);
+                return;
+            }
+
+            logger.Printf(Logger::RecType::Info, "/avail message sent to Home Assistant - now monitoring for incoming messages");
+            state.ChangeState(State::Connected);
+        }
+
+
+        // TODO: Generally we need to break up the outgoing messages into smaller chunks and send them over time to 
+        //       allow other network related tasks to be performed. This will also allow the system to be more responsive
+        //       to incoming messages and other tasks.
+        //
+        //       In additon we need to keep an activity time for each subscription and if no activity is seen for a period
+        //       of time then we need to re-subscribe to the topic. This will allow the system to recover from network
+        //       outages and broker restarts.
+        //
+        //       There should be a Timer for each entity that we reset each time there is activity on the topic. If the
+        //       timer expires then we publish the /coning and /avail messages for that entity and re-subscribe its
+        //       related topics. In addition, we should republish each state property for the entity.
+        //
         case State::Connected:
         {
             if (!mqttClient.connected())
             {
                 logger.Printf(Logger::RecType::Critical, "Lost connection to MQTT Broker - restarting");
                 mqttClient.stop();
-                state = State::WaitForWiFi;
+                state.ChangeState(State::WaitForWiFi);
                 return;
             }
 
-            if (publishConfigTimer.IsAlarmed())     // TODO: just make all /config, subscribe, and /avail work different states
-            {
-                // Publish the Home Assistant /config JSON strings for each entity
-                logger.Printf(Logger::RecType::Info, "Sending /config messages to Home Assistant");
-                if (!SendAllConfigMsgs(mqttClient))
-                {
-                    logger.Printf(Logger::RecType::Critical, "Failed to send /config messages to Home Assistant - restarting");
-                    state = State::Delay;
-                    return;
-                }
-                logger.Printf(Logger::RecType::Info, "All /config messages sent to Home Assistant");
-
-                // Send all subscriptions
-                logger.Printf(Logger::RecType::Info, "Subscribing to Home Assistant topics");
-
-                for (int i = 0; i < subscribedTopicCount; i++)
-                {
-                    string topic = subscribedTopics[i]._baseTopic;          // TODO: use a stack buffer (prefix + suffix)
-                    topic += subscribedTopics[i]._topicSuffix;
-
-                    logger.Printf(Logger::RecType::Info, "Subscribing to topic: %s", topic.c_str());        // TODO: add log out level filter
-
-                    if (!mqttClient.subscribe(topic.c_str()))
-                    {
-                        logger.Printf(Logger::RecType::Critical, "Failed to subscribe to topic: %s - restarting", topic.c_str());
-                        state = State::Delay;
-                        return;
-                    }
-                }  
-
-                publishConfigTimer.SetAlarm(publishConfigTimer.FOREVER);
-                publishAvailTimer.SetAlarm(1000); // delay the /avail messages to be sent until after the /config messages have been sent
-            }
-
-            if (publishAvailTimer.IsAlarmed())
-            {
-                // Make all entities available
-                logger.Printf(Logger::RecType::Info, "Sending /avail messages to Home Assistant");
-                if (!SendAllOnlineAvailMsgs(mqttClient))
-                {
-                    logger.Printf(Logger::RecType::Critical, "Failed to send /avail messages to Home Assistant - restarting");
-                    state = State::Delay;
-                    return;
-                }
-
-                logger.Printf(Logger::RecType::Info, "All /avail messages sent to Home Assistant - now monitoring for incoming messages");
-                publishAvailTimer.SetAlarm(publishAvailTimer.FOREVER);
-            }
-
-            // Check for incoming messages
-            int msgSize = mqttClient.parseMessage();
-            if (msgSize > 0)
-            {
-                // Process the incoming message
-                String topic = std::move(mqttClient.messageTopic());
-                char payload[msgSize + 1];
-                int read = mqttClient.read((uint8_t*)&payload[0], msgSize);
-                $Assert(read == msgSize);
-                payload[msgSize] = '\0';
-                logger.Printf(Logger::RecType::Info, "Received message on topic: %s - payload: %s", topic.c_str(), payload);
-
-                // Call the handler for the topic
-                int i;
-                for (i = 0; i < subscribedTopicCount; i++)
-                {
-                    if ((topic.length() == (subscribedTopics[i]._baseTopicSize + subscribedTopics[i]._topicSuffixSize))
-                        && (topic.startsWith(subscribedTopics[i]._baseTopic)) && (topic.endsWith(subscribedTopics[i]._topicSuffix)))
-                    {
-                        subscribedTopics[i]._handler(payload);      // Call the handler for the topic; given it the payload
-                        break;
-                    }
-                }
-                
-                if (i == subscribedTopicCount)
-                {
-                    logger.Printf(Logger::RecType::Warning, "Topic: %s not found in subscribedTopics table", topic.c_str());
-                }
-            }
+            mqttClient.poll();  // Check for incoming messages
 
             // Publish to Home Assistant any change of state for the Boiler for each entity
             if (!MonitorBoiler(mqttClient))
             {
                 logger.Printf(Logger::RecType::Warning, "Failed in MonitorBoiler - restarting");
-                state = State::Delay;
+                state.ChangeState(State::Delay);
                 return;
             }
         }
@@ -1104,3 +1151,4 @@ void HA_MqttClient::loop()
         }
     }
 }
+

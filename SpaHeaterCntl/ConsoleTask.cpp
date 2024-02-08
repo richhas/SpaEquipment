@@ -363,7 +363,7 @@ CmdLine::Status StartBoilerControlProcessor(Stream &CmdStream, int Argc, char co
         return CmdLine::Status::UnexpectedParameterCount;
     }
 
-    if (boilerControllerTask.IsBusy() || (boilerControllerTask.GetHeaterState() != BoilerControllerTask::HeaterState::Halted))
+    if (boilerControllerTask.IsBusy() || (boilerControllerTask.GetStateMachineState() != BoilerControllerTask::StateMachineState::Halted))
     {
         CmdStream.println("Boiler is not ready");
         return CmdLine::Status::CommandFailed;
@@ -382,7 +382,7 @@ CmdLine::Status StopBoilerControlProcessor(Stream &CmdStream, int Argc, char con
         return CmdLine::Status::UnexpectedParameterCount;
     }
 
-    if (boilerControllerTask.IsBusy() || (boilerControllerTask.GetHeaterState() != BoilerControllerTask::HeaterState::Running))
+    if (boilerControllerTask.IsBusy() || (boilerControllerTask.GetStateMachineState() != BoilerControllerTask::StateMachineState::Running))
     {
         CmdStream.println("Boiler is not ready");
         return CmdLine::Status::CommandFailed;
@@ -401,7 +401,7 @@ CmdLine::Status ResetBoilerControlProcessor(Stream &CmdStream, int Argc, char co
         return CmdLine::Status::UnexpectedParameterCount;
     }
 
-    if (boilerControllerTask.IsBusy() || (boilerControllerTask.GetHeaterState() != BoilerControllerTask::HeaterState::Faulted))
+    if (boilerControllerTask.IsBusy() || (boilerControllerTask.GetStateMachineState() != BoilerControllerTask::StateMachineState::Faulted))
     {
         CmdStream.println("Boiler is not ready");
         return CmdLine::Status::CommandFailed;
@@ -672,7 +672,7 @@ void ConsoleTask::ShowCurrentBoilerState()
     ShowCurrentBoilerConfig(0);
 
     printf(_stream, "Boiler State: \n    HeaterState: %s\n    fReason: %s\n    Command: %s\n    Mode: %s\n",
-           BoilerControllerTask::GetHeaterStateDescription(boilerControllerTask.GetHeaterState()),
+           BoilerControllerTask::GetStateMachineStateDescription(boilerControllerTask.GetStateMachineState()),
            BoilerControllerTask::GetFaultReasonDescription(boilerControllerTask.GetFaultReason()),
            BoilerControllerTask::GetCommandDescription(boilerControllerTask.GetCommand()),
            BoilerControllerTask::GetBoilerModeDescription(boilerControllerTask.GetMode()));

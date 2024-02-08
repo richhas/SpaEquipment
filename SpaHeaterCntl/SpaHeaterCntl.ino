@@ -1,6 +1,5 @@
 // SPA Heater Controller for Maxie HA system 2024 (c)TinyBus
 
-#include <ArduinoMqttClient.h>
 #include "SpaHeaterCntl.h"
 
 
@@ -28,6 +27,9 @@ shared_ptr<TelnetServer> telnetServer;
 //      DiagLog
 //
 //    WiFi dependent:
+//
+//    TODO:
+//      - Change log prints to use correct log levels
 //
 
 void StartTelnet()
@@ -275,7 +277,7 @@ void loop()
     static bool firstHeaterStateMachineStarted = false;
     if (!firstHeaterStateMachineStarted)
     {
-        $Assert(boilerControllerTask.GetHeaterState() == BoilerControllerTask::HeaterState::Halted);
+        $Assert(boilerControllerTask.GetStateMachineState() == BoilerControllerTask::StateMachineState::Halted);
 
         // If Boiler State Machine is never been started, start it iff we have a valid config for it
         if (boilerConfig.IsValid() && boilerConfig.GetRecord().IsConfigured() &&

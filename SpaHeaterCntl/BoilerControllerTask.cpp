@@ -66,7 +66,7 @@ void BoilerControllerTask::setup()
     digitalWrite(_heaterActiveLedPin, false);
 
     // initialize all state visible to the foreground task
-    _state = HeaterState::Halted;
+    _state = StateMachineState::Halted;
 
     _command = Command::Idle;
     _faultReason = FaultReason::None;
@@ -145,7 +145,7 @@ void BoilerControllerTask::loop()
     //* Main state machine for the BoilerControllerTask
     switch (_state)
     {
-        case HeaterState::Halted:
+        case StateMachineState::Halted:
         {
             digitalWrite(_heaterControlPin, false); // Make sure the heater is turned off
             UpDateHeaterStateIfNeeded();
@@ -154,13 +154,13 @@ void BoilerControllerTask::loop()
             {
                 firstTimeInRunningState = true;
                 SafeClearCommand();                       // acknowledge the command
-                SafeSetHeaterState(HeaterState::Running); // Go to the Running state
+                SafeSetStateMachineState(StateMachineState::Running); // Go to the Running state
                 logger.Printf(Logger::RecType::Info, "BoilerControllerTask: HeaterState::Halted: Command::Start\n");
             }
         }
         break;
 
-        case HeaterState::Running:
+        case StateMachineState::Running:
         {
             enum class State
             {
@@ -184,7 +184,7 @@ void BoilerControllerTask::loop()
             {
                 // The forground task has requested that we stop
                 SafeClearCommand();                      // acknowledge the command
-                SafeSetHeaterState(HeaterState::Halted); // Go back to the Halted state
+                SafeSetStateMachineState(StateMachineState::Halted); // Go back to the Halted state
                 digitalWrite(_heaterControlPin, false);  // Make sure the heater is turned off
                 return;
             }
@@ -284,7 +284,7 @@ void BoilerControllerTask::loop()
                         SafeSetFaultReason(FaultReason::CoProcCommError);
 
                         //printf(Serial, "BoilerControllerTask: OneWireCoProcEnumLoop: CoProc Timeout\n");
-                        SafeSetHeaterState(HeaterState::Faulted); // Go to the Faulted state
+                        SafeSetStateMachineState(StateMachineState::Faulted); // Go to the Faulted state
                         return;
                     }
 
@@ -295,7 +295,7 @@ void BoilerControllerTask::loop()
                         SafeSetFaultReason(FaultReason::TempSensorReadFailed);
 
                         //printf(Serial, "BoilerControllerTask: BoilerInTempReadTimeoutTimer: Timeout\n");
-                        SafeSetHeaterState(HeaterState::Faulted); // Go to the Faulted state
+                        SafeSetStateMachineState(StateMachineState::Faulted); // Go to the Faulted state
                         return;
                     }
 
@@ -376,7 +376,7 @@ void BoilerControllerTask::loop()
         }
         break;
 
-        case HeaterState::Faulted:
+        case StateMachineState::Faulted:
         {
             digitalWrite(_heaterControlPin, false); // Make sure the heater is turned off
             UpDateHeaterStateIfNeeded();
@@ -385,7 +385,7 @@ void BoilerControllerTask::loop()
             {
                 SafeSetFaultReason(FaultReason::None);   // Clear the fault reason
                 SafeClearCommand();                      // acknowledge the command
-                SafeSetHeaterState(HeaterState::Halted); // Go back to the Halted state
+                SafeSetStateMachineState(StateMachineState::Halted); // Go back to the Halted state
             }
         }
         break;
@@ -625,7 +625,7 @@ void BoilerControllerTask::SafeSetFaultReason(BoilerControllerTask::FaultReason 
     }
 }
 
-BoilerControllerTask::HeaterState BoilerControllerTask::GetHeaterState()
+BoilerControllerTask::StateMachineState BoilerControllerTask::GetStateMachineState()
 {
     CriticalSection cs;
     {
@@ -633,7 +633,7 @@ BoilerControllerTask::HeaterState BoilerControllerTask::GetHeaterState()
     }
 }
 
-void BoilerControllerTask::SafeSetHeaterState(BoilerControllerTask::HeaterState State)
+void BoilerControllerTask::SafeSetStateMachineState(BoilerControllerTask::StateMachineState State)
 {
     CriticalSection cs;
     {
@@ -767,7 +767,7 @@ void BoilerControllerTask::Start()          // Starts the heater - only valid if
     CriticalSection cs;
     {
         $Assert(_command == Command::Idle);
-        $Assert(_state == HeaterState::Halted);
+        $Assert(_state == StateMachineState::Halted);
         _command = Command::Start;
     }
 }
@@ -776,7 +776,7 @@ void BoilerControllerTask::StartIfSafe()    // Starts the heater if it is safe t
 {
     CriticalSection cs;
     {
-        if ((_command == Command::Idle) && (_state == HeaterState::Halted))
+        if ((_command == Command::Idle) && (_state == StateMachineState::Halted))
         {
             _command = Command::Start;
         }
@@ -788,7 +788,7 @@ void BoilerControllerTask::Stop()           // Stops the heater - only valid if 
     CriticalSection cs;
     {
         $Assert(_command == Command::Idle);
-        $Assert(_state == HeaterState::Running);
+        $Assert(_state == StateMachineState::Running);
         _command = Command::Stop;
     }
 }
@@ -797,7 +797,7 @@ void BoilerControllerTask::StopIfSafe()     // Stops the heater if it is safe to
 {
     CriticalSection cs;
     {
-        if ((_command == Command::Idle) && (_state == HeaterState::Running))
+        if ((_command == Command::Idle) && (_state == StateMachineState::Running))
         {
             _command = Command::Stop;
         }
@@ -809,7 +809,7 @@ void BoilerControllerTask::Reset()          // Resets the heater - only valid if
     CriticalSection cs;
     {
         $Assert(_command == Command::Idle);
-        $Assert(_state == HeaterState::Faulted);
+        $Assert(_state == StateMachineState::Faulted);
         _command = Command::Reset;
     }
 }
@@ -818,7 +818,7 @@ void BoilerControllerTask::ResetIfSafe()    // Resets the heater if it is safe t
 {
     CriticalSection cs;
     {
-        if ((_command == Command::Idle) && (_state == HeaterState::Faulted))
+        if ((_command == Command::Idle) && (_state == StateMachineState::Faulted))
         {
             _command = Command::Reset;
         }

@@ -10,7 +10,6 @@
 #include <vector>
 #include <Arduino_FreeRTOS.h>
 
-
 using namespace std;
 
 #include "Common.h"
@@ -259,21 +258,21 @@ public:
     static void DisplayTargetTemps(Stream& output, const TargetTemps& temps, const char* prependString = "");
 
     // States of the heater
-    enum class HeaterState
+    enum class StateMachineState
     {
         Halted,         // Heater is halted. No power to heater. Can be moved to Running state by calling Start().
         Running,        // Heater is running. Can be moved to Halted state by calling Stop(). Will move to Faulted state if a fault is detected.
         Faulted,        // Enters this state if a fault is detected. Can be moved to Halted state by calling Reset().
     };
-    static constexpr const char* GetHeaterStateDescription(HeaterState state)
+    static constexpr const char* GetStateMachineStateDescription(StateMachineState state)
     {
         switch (state)
         {
-            case HeaterState::Halted:
+            case StateMachineState::Halted:
                     return PSTR("Halted");
-            case HeaterState::Running:
+            case StateMachineState::Running:
                 return PSTR("Running");
-            case HeaterState::Faulted:
+            case StateMachineState::Faulted:
                 return PSTR("Faulted");
             default:
                 return PSTR("Unknown");
@@ -399,7 +398,7 @@ public:
 
     inline const vector<uint64_t> &GetTempSensors() const { return _sensors; }
     FaultReason GetFaultReason();
-    HeaterState GetHeaterState();
+    StateMachineState GetStateMachineState();
     uint32_t GetHeaterStateSequence();
     void GetTempertureState(TempertureState& State);
     
@@ -429,7 +428,7 @@ private:
     void SnapshotTempState(TempertureState& State);
     Command SnapshotCommand();
     void SafeSetFaultReason(FaultReason Reason);
-    void SafeSetHeaterState(HeaterState State);
+    void SafeSetStateMachineState(StateMachineState State);
     void SafeClearCommand();
     bool OneWireCoProcEnumLoop(array<DiscoveredTempSensor, 5>*& Results, uint8_t& ResultsSize);
 
@@ -441,7 +440,7 @@ private:
     static constexpr uint8_t    _heaterActiveLedPin = 13;
     vector<uint64_t>            _sensors;
     TempSensorIds               _sensorIds; 
-    HeaterState                 _state;
+    StateMachineState           _state;
     TargetTemps                 _targetTemps;
     FaultReason                 _faultReason;
     TempertureState             _tempState;
