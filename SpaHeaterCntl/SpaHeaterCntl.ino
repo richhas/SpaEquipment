@@ -30,6 +30,8 @@ shared_ptr<TelnetServer> telnetServer;
 //
 //    TODO:
 //      - Change log prints to use correct log levels
+//      - Add a log level into system config
+//      - Add MQTT related config console commands
 //
 
 void StartTelnet()
