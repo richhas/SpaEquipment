@@ -218,3 +218,54 @@ homeassistant/button/StopButton/config
       "'name' : 'SpaHeater'\n"
    "}\n"
 "}\n"
+
+homeassistant/number/Hysterisis/config
+
+{
+   "~" : "homeassistant/number/Hysterisis",
+   "name": "Hysterisis",
+   "device_class" : "temperature",
+   "unit_of_measurement":"°F",
+   "availability_topic" : "TinyBus/SpaHeater/avail",
+   "availability_template" : "{{ value_json }}",
+   "state_topic" : "~/state",
+   "command_topic" : "~/set",
+   "min" : 0.01,
+   "max" : 5.0,
+   "step" : 0.01,
+   "unique_id" : "Hysterisis01",
+   "device": {
+         "identifiers":[
+          "01"
+         ],
+         "name":"SpaHeater"
+    }
+}
+
+"{\n"
+   "'~' : 'homeassistant/number/Hysterisis',\n"
+   "'name': 'Hysterisis',\n"
+   "'device_class' : 'temperature',\n"
+   "'unit_of_measurement':'°F',\n"
+   "'availability_topic' : 'TinyBus/SpaHeater/avail',\n"
+   "'availability_template' : '{{ value_json }}',\n"
+   "'state_topic' : '~/state',\n"
+   "'command_topic' : '~/set',\n"
+   "'min' : 0.01,\n"
+   "'max' : 5.0,\n"
+   "'step' : 0.01,\n"
+   "'unique_id' : 'Hysterisis01',\n"
+   "'device' : {\n"
+      "'identifiers' : [\n"
+         "'01'\n"
+         "],\n"
+      "'name' : 'SpaHeater'\n"
+   "}\n"
+"}\n"
+
+
+
+
+   
+
+

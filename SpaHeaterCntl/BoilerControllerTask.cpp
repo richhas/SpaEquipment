@@ -835,7 +835,7 @@ void BoilerControllerTask::DisplayTemperatureState(Stream &output, const Tempert
     printf(output, "%s    Boiler In Temperature: %.2f (%.2fF)\n", prependString, state._boilerInTemp, $CtoF(state._boilerInTemp));
     printf(output, "%s    Boiler Out Temperature: %.2f (%.2fF)\n", prependString, state._boilerOutTemp, $CtoF(state._boilerOutTemp));
     printf(output, "%s    Set Point: %.2f (%.2fF)\n", prependString, state._setPoint, $CtoF(state._setPoint));
-    printf(output, "%s    Hysteresis: %.2f\n", prependString, state._hysteresis);
+    printf(output, "%s    Hysteresis: %.2fC (%.2fF)\n", prependString, state._hysteresis, $CDiffToF(state._hysteresis));
     printf(output, "%s    Heater On: %s\n", prependString, state._heaterOn ? "true" : "false");
 }
 

@@ -148,7 +148,7 @@ namespace TinyBus
         }
 
         
-        //* Home Assistant MQTT Namespace Names
+        //*** Home Assistant MQTT Namespace Names definitions
         static constexpr char _defaultBaseTopic[] = "homeassistant";
         static constexpr char _haAvailTopicSuffix[] = "status";
             static constexpr char _haAvailOnline[] = "online";
@@ -166,12 +166,13 @@ namespace TinyBus
         static constexpr char _defaultStartButtonName[] = "StartButton";
         static constexpr char _defaultStopButtonName[] = "StopButton";
         static constexpr char _defaultRebootButtonName[] = "RebootButton";
+        static constexpr char _defaultHysterisisName[] = "Hysterisis";
 
         //* HA MQTT Intg Topic strings
         static constexpr char _haIntgAvailSuffix[] = "/status";
 
         //* Common Avail Topic for all entities
-        static constexpr char _commonAvailTopicTemplate[] = "TinyBus/%0/avail";     // Device Name
+        static constexpr char _commonAvailTopicTemplate[] = "TinyBus/%0/avail";     // %0=Device Name
         char*   commonAvailTopic;      // Common Avail Topic expanded string
 
         //* MQTT Topic suffixes for Home Assistant MQTT supported entity platforms
@@ -198,6 +199,10 @@ namespace TinyBus
 
         // button cmd
         static constexpr char _haButtonCmd[] = "/cmd";      // incoming command topic
+
+        // Numeric (Hysterisis)
+        static constexpr char _haNumericState[] = "/state";
+        static constexpr char _haNumericCmd[] = "/set";      // incoming command topic
 
         
         //* JSON templates for Home Assistant MQTT configuration and base topic strings
@@ -354,6 +359,34 @@ namespace TinyBus
         int expandedMsgSizeOfRebootButtonConfigJson;
 
 
+        // JSON template for Home Assistant MQTT numeric (Hysterisis) configuration
+        static constexpr char HysterisisConfigJsonTemplate[] =
+            "{\n" // Parms: <base_topic>, <device-name>, <entity-name>, commonAvailTopic
+                "'~' : '%0/number/%2',\n"
+                "'name': '%2',\n"
+                "'device_class' : 'temperature',\n"
+                "'unit_of_meas' : '°F',\n"
+                "'avty_t' : '%3',\n"
+                "'avty_tpl' : '{{ value_json }}',\n"
+                "'stat_t' : '~/state',\n"
+                "'command_topic' : '~/set',\n"
+                "'min' : 0.01,\n"
+                "'max' : 5.0,\n"
+                "'step' : 0.01,\n"
+                "'uniq_id' : '%2',\n"
+                "'dev':\n"
+                "{\n"
+                    "'identifiers' : ['01'],\n"
+                    "'name' : '%1'\n"
+                "}\n"
+            "}\n";
+
+        // JSON template for Home Assistant MQTT base topic for numeric (Hysterisis) topic
+        static constexpr char HysterisisBaseTopicJsonTemplate[] = "%0/number/%1"; // Parms: <base_topic>, <entity-name>
+        char*   hysterisisBaseTopic;           // Hysterisis Base Topic expanded string
+        int expandedMsgSizeOfHysterisisConfigJson;
+
+
         //* Describes a Home Assistant entity for the sake of building the /config and /avail messages
         class HaEntityDesc
         {
@@ -388,6 +421,7 @@ namespace TinyBus
             HaEntityDesc(_defaultStartButtonName, ButtonConfigJsonTemplate, ButtonBaseTopicJsonTemplate, &startButtonBaseTopic, &expandedMsgSizeOfStartButtonConfigJson),
             HaEntityDesc(_defaultRebootButtonName, ButtonConfigJsonTemplate, ButtonBaseTopicJsonTemplate, &rebootButtonBaseTopic, &expandedMsgSizeOfRebootButtonConfigJson),
             HaEntityDesc(_defaultStopButtonName, ButtonConfigJsonTemplate, ButtonBaseTopicJsonTemplate, &stopButtonBaseTopic, &expandedMsgSizeOfStopButtonConfigJson),
+            HaEntityDesc(_defaultHysterisisName, HysterisisConfigJsonTemplate, HysterisisBaseTopicJsonTemplate, &hysterisisBaseTopic, &expandedMsgSizeOfHysterisisConfigJson)
         };
         int _entityDescCount = sizeof(_entityDescs) / sizeof(HaEntityDesc);
 
@@ -684,6 +718,7 @@ void HA_MqttClient::loop()
             static bool doBoilerThermometer = false;
             static bool doBoilerOutTemp = false;
             static bool doAmbientTemp = false;
+            static bool doHysterisis = false;
             static bool doHeaterState = false;
             static bool doBoilerState = false;
             static bool doFaultReason = false;
@@ -701,6 +736,7 @@ void HA_MqttClient::loop()
                 doBoilerThermometer = DoForce;
                 doBoilerOutTemp = DoForce;
                 doAmbientTemp = DoForce;
+                doHysterisis = DoForce;
                 doHeaterState = DoForce;
                 doBoilerState = DoForce;
                 doFaultReason = DoForce;
@@ -722,6 +758,7 @@ void HA_MqttClient::loop()
                         doBoilerThermometer = doBoilerInTemp;
                         doBoilerOutTemp = (force || (newState._boilerOutTemp != tempState._boilerOutTemp));
                         doAmbientTemp = (force || (newState._ambiantTemp != tempState._ambiantTemp));
+                        doHysterisis = (force || (newState._hysteresis != tempState._hysteresis));
                         doHeaterState = (force || (newState._heaterOn != tempState._heaterOn));
 
                         tempState = newState;
@@ -783,6 +820,7 @@ void HA_MqttClient::loop()
                     SendBoilerThermometer,
                     SendBoilerOutTemp,
                     SendAmbientTemp,
+                    SendHysterisis,
                     SendHeaterState,
                     SendBoilerState,
                     SendFaultReason,
@@ -833,8 +871,17 @@ void HA_MqttClient::loop()
                         if (doAmbientTemp)
                         {
                             doAmbientTemp = false;
-                            sendState.ChangeState(SendState::SendHeaterState);
+                            sendState.ChangeState(SendState::SendHysterisis);
                             return SendPropertyMsg(MqttClient, ambientThermometerBaseTopic, _haSensorTemp, $CtoF(tempState._ambiantTemp));
+                        }
+                    }
+                    case SendState::SendHysterisis:
+                    {
+                        if (doHysterisis)
+                        {
+                            doHysterisis = false;
+                            sendState.ChangeState(SendState::SendHeaterState);
+                            return SendPropertyMsg(MqttClient, hysterisisBaseTopic, _haNumericState, $CDiffToF(tempState._hysteresis));
                         }
                     }
                     case SendState::SendHeaterState:
@@ -933,29 +980,45 @@ void HA_MqttClient::loop()
         return true;
     };
 
+    // Set target temperature Helper
+    static auto SetTargetTempAndHysterisis = [](float SetpointInC, float HysterisisInC) -> bool
+    {
+        BoilerControllerTask::TargetTemps targetTemps;
+        boilerControllerTask.GetTargetTemps(targetTemps);
+
+        // Update the setpoint in the configuration and in the controller
+        boilerConfig.GetRecord()._setPoint = SetpointInC;
+        boilerConfig.GetRecord()._hysteresis = HysterisisInC;
+        boilerConfig.Write();
+        boilerConfig.Begin();
+        if (!boilerConfig.IsValid())
+        {
+            logger.Printf(Logger::RecType::Warning, "SetTargetTemp: Failed to write to config");
+            return false;
+        }
+
+        targetTemps._setPoint = SetpointInC;
+        targetTemps._hysteresis = HysterisisInC;
+        boilerControllerTask.SetTargetTemps(targetTemps);
+
+        return true;
+    };
     // Setpoint Set command
     static NotificationHandler HandleWHSetpointSet = [] (const char *Payload) -> bool
     {
         logger.Printf(Logger::RecType::Info, "Received WH Setpoint Set command: %s", Payload);
         float setpoint = $FtoC(atof(Payload));
 
-        BoilerControllerTask::TargetTemps targetTemps;
-        boilerControllerTask.GetTargetTemps(targetTemps);
+        return SetTargetTempAndHysterisis(setpoint, boilerConfig.GetRecord()._hysteresis);
+    };
 
-        // Update the setpoint in the configuration and in the controller
-        boilerConfig.GetRecord()._setPoint = setpoint;
-        boilerConfig.Write();
-        boilerConfig.Begin();
-        if (!boilerConfig.IsValid())
-        {
-            logger.Printf(Logger::RecType::Warning, "Failed to write WH Setpoint command value to config: %s", Payload);
-            return false;
-        }
+    // Hysterisis Set command
+    static NotificationHandler HandleHysterisisSetCmd = [](const char *Payload) -> bool
+    {
+        logger.Printf(Logger::RecType::Info, "Received Hysterisis Set command: %s", Payload);
+        float hysterisis = $FDiffToC(atof(Payload));
 
-        targetTemps._setPoint = setpoint;
-        boilerControllerTask.SetTargetTemps(targetTemps);
-
-        return true;
+        return SetTargetTempAndHysterisis(boilerConfig.GetRecord()._setPoint, hysterisis);
     };
 
     // Reset Button command
@@ -1037,7 +1100,8 @@ void HA_MqttClient::loop()
         SubscribedTopic(resetButtonBaseTopic, _haButtonCmd, HandleResetButtonCmd),
         SubscribedTopic(startButtonBaseTopic, _haButtonCmd, HandleStartButtonCmd),
         SubscribedTopic(stopButtonBaseTopic, _haButtonCmd, HandleStopButtonCmd),
-        SubscribedTopic(rebootButtonBaseTopic, _haButtonCmd, HandleRebootButtonCmd)
+        SubscribedTopic(rebootButtonBaseTopic, _haButtonCmd, HandleRebootButtonCmd),
+        SubscribedTopic(hysterisisBaseTopic, _haNumericCmd, HandleHysterisisSetCmd)
     };
     static int subscribedTopicCount = sizeof(subscribedTopics) / sizeof(SubscribedTopic);
 
@@ -1173,8 +1237,6 @@ void HA_MqttClient::loop()
             if (!mqttClient.connect(brokerIP, mqttConfig.GetRecord()._brokerPort))
             {
                 // failed for some reason
-                // TODO: Keep track of the number of failed attempts to connect to the broker. If it exceeds a threshold and
-                // there are no other network connections, then reset the WiFi. Do this after Network is cleaned up.
                 logger.Printf(Logger::RecType::Critical, "Failed to connect to MQTT Broker - delaying 5 secs and retrying");
                 state.ChangeState(State::WaitForWiFi);
                 return;
