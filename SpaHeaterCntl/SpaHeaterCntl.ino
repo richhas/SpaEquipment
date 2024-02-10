@@ -174,7 +174,7 @@ void FinishStart()
     matrixTask.PutString("S10");
     network.setup();
     matrixTask.PutString("S11");
-    mqttClient.setup();
+    haMqttClient.setup();
     matrixTask.PutString("S12");
 }
 
@@ -319,5 +319,5 @@ void loop()
 
     network.loop();     // give network a chance to do its thing
     // MonitorBoiler();
-    mqttClient.loop();
+    haMqttClient.loop();
 }

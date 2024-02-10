@@ -5,464 +5,401 @@
 #include <ArduinoMqttClient.h>
 #include <functional>
 
-namespace HA_Mqtt
+namespace TinyBus
 {
-    //* MQTT Configuration record
-    #pragma pack(push, 1)
-    struct HA_MqttConfig
+    namespace HA_Mqtt
     {
-        // MQTT Broker config
-        uint32_t _brokerIP;
-        uint16_t _brokerPort;
-
-        // MQTT Client config
-        constexpr static int _maxUsernameLen = 16;
-        constexpr static int _maxPasswordLen = 16;
-        constexpr static int _maxClientIdLen = 16;
-        char _clientId[_maxClientIdLen];
-        char _username[_maxUsernameLen];
-        char _password[_maxPasswordLen];
-
-        // HA MQTT config
-        constexpr static int _maxBaseHATopicLen = 32;
-        constexpr static int _maxHaDeviceNameLen = 32;
-        char _baseHATopic[_maxBaseHATopicLen];
-        char _haDeviceName[_maxHaDeviceNameLen];
-    };
-    #pragma pack(pop)
-
-    //* Utility class for determining the size of an Expanded JSON string template
-    class PrintOutputCounter : public Print
-    {
-    private:
-        int _count;
-
-    public:
-        PrintOutputCounter() : _count(0) {}
-        virtual size_t write(uint8_t c) override final
+        //* MQTT Configuration record
+        #pragma pack(push, 1)
+        struct HA_MqttConfig
         {
-            _count++;
-            return 1;
-        }
-        virtual size_t write(const uint8_t *buffer, size_t size) override final
+            // MQTT Broker config
+            uint32_t _brokerIP;
+            uint16_t _brokerPort;
+
+            // MQTT Client config
+            constexpr static int _maxUsernameLen = 16;
+            constexpr static int _maxPasswordLen = 16;
+            constexpr static int _maxClientIdLen = 16;
+            char _clientId[_maxClientIdLen];
+            char _username[_maxUsernameLen];
+            char _password[_maxPasswordLen];
+
+            // HA MQTT config
+            constexpr static int _maxBaseHATopicLen = 32;
+            constexpr static int _maxHaDeviceNameLen = 32;
+            char _baseHATopic[_maxBaseHATopicLen];
+            char _haDeviceName[_maxHaDeviceNameLen];
+        };
+        #pragma pack(pop)
+
+        //* Utility class for determining the size of an Expanded JSON string template
+        class PrintOutputCounter : public Print
         {
-            _count += size;
-            return size;
-        }
-        int GetCount() const { return _count; }
-        void Reset() { _count = 0; }
-    };
+        private:
+            int _count;
 
-    //* Utility class for expanding a JSON string template into a buffer
-    class BufferPrinter : public Print
-    {
-    private:
-        char *_buffer;
-        int _size;
-        int _maxSize;
-
-    public:
-        BufferPrinter(char *buffer, int maxSize) : _buffer(buffer), _size(0), _maxSize(maxSize) {}
-
-        virtual size_t write(uint8_t c) override final;
-        virtual size_t write(const uint8_t *buffer, size_t size) override final;
-
-        const char *GetBuffer() const { return _buffer; }
-        int GetSize() const { return _size; }
-    };
-
-    size_t BufferPrinter::write(uint8_t c)
-    {
-        if (_size < _maxSize)
-        {
-            _buffer[_size++] = (char)c;
-            _buffer[_size] = 0;
-            return 1;
-        }
-        else
-        {
-            _buffer[_maxSize] = 0;
-        }
-        return 0;
-    }
-
-    size_t BufferPrinter::write(const uint8_t *buffer, size_t size)
-    {
-        size_t bytesToCopy = std::min(size, static_cast<size_t>(_maxSize - _size));
-        if (bytesToCopy > 0)
-        {
-            memcpy(&_buffer[_size], buffer, bytesToCopy);
-            _size += bytesToCopy;
-        }
-        _buffer[_size] = 0;
-        return bytesToCopy;
-    }
-
-    //* Utility function for expanding a JSON template string using passed parameters into a Print object
-    //  For example this function is used to expand a JSON template string direct;ly into a MqttClient 
-    //  message stream
-    size_t ExpandJson(Print &To, const char *JsonFormat, ...)
-    {
-        uint32_t(*va_list)[0] = VarArgsBase(&JsonFormat);
-        size_t result = 0;
-
-        char *p = (char *)JsonFormat;
-        while (*p)
-        {
-            if (*p == '%')
+        public:
+            PrintOutputCounter() : _count(0) {}
+            virtual size_t write(uint8_t c) override final
             {
-                p++;
-
-                if (isdigit(*p))
-                {
-                    int index = *p - '0';
-                    if ((index <= 9) && (index >= 0))
-                    {
-                        result += To.print((char *)((*va_list)[index]));
-                    }
-                }
-                else if (*p == '%')
-                {
-                    result += To.print('%');
-                }
-                else
-                {
-                    Serial.print("Error: Invalid format specifier: ");
-                    return 0;
-                }
+                _count++;
+                return 1;
             }
-            else if (*p == '\'')
+            virtual size_t write(const uint8_t *buffer, size_t size) override final
             {
-                result += To.print('"');
+                _count += size;
+                return size;
+            }
+            int GetCount() const { return _count; }
+            void Reset() { _count = 0; }
+        };
+
+        //* Utility class for expanding a JSON string template into a buffer
+        class BufferPrinter : public Print
+        {
+        private:
+            char *_buffer;
+            int _size;
+            int _maxSize;
+
+        public:
+            BufferPrinter(char *buffer, int maxSize) : _buffer(buffer), _size(0), _maxSize(maxSize) {}
+
+            virtual size_t write(uint8_t c) override final;
+            virtual size_t write(const uint8_t *buffer, size_t size) override final;
+
+            const char *GetBuffer() const { return _buffer; }
+            int GetSize() const { return _size; }
+        };
+
+        size_t BufferPrinter::write(uint8_t c)
+        {
+            if (_size < _maxSize)
+            {
+                _buffer[_size++] = (char)c;
+                _buffer[_size] = 0;
+                return 1;
             }
             else
             {
-                result += To.print(*p);
+                _buffer[_maxSize] = 0;
             }
-            p++;
+            return 0;
         }
 
-        return result;
-    }
-
-    
-    //* Home Assistant MQTT Namespace Names
-    static constexpr char _defaultBaseTopic[] = "homeassistant";
-    static constexpr char _haAvailTopicSuffix[] = "status";
-        static constexpr char _haAvailOnline[] = "online";
-        static constexpr char _haAvailOffline[] = "offline";
-
-    static constexpr char _defaultDeviceName[] = "SpaHeater";
-    static constexpr char _defaultBoilerName[] = "Boiler"; 
-    static constexpr char _defaultBoilerInTempName[] = "BoilerInTemp";
-    static constexpr char _defaultBoilerOutTempName[] = "BoilerOutTemp";
-    static constexpr char _defaultAmbientTempName[] = "AmbientTemp";
-    static constexpr char _defaultHeaterStateName[] = "HeatingElement";
-    static constexpr char _defaultBoilerStateName[] = "BoilerState";
-    static constexpr char _defaultFaultReasonName[] = "FaultReason";
-    static constexpr char _defaultResetButtonName[] = "ResetButton";
-    static constexpr char _defaultStartButtonName[] = "StartButton";
-    static constexpr char _defaultStopButtonName[] = "StopButton";
-    static constexpr char _defaultRebootButtonName[] = "RebootButton";
-
-    //* HA MQTT Intg Topic strings
-    static constexpr char _haIntgAvailSuffix[] = "/status";
-
-    //* Common Avail Topic for all entities
-    static constexpr char _commonAvailTopicTemplate[] = "TinyBus/%0/avail";     // Device Name
-    char*   commonAvailTopic;      // Common Avail Topic expanded string
-
-    //* MQTT Topic suffixes for Home Assistant MQTT supported entity platforms
-    // Common
-    static constexpr char _haConfig[] = "/config";
-    static constexpr char _haAvail[] = "/avail";
-
-    // water_heater
-    static constexpr char _haWHMode[] = "/mode";
-    static constexpr char _haWHModeSet[] = "/mode/set";             // incoming command topic
-    static constexpr char _haWHSetpoint[] = "/temperature";
-    static constexpr char _haWHSetpointSet[] = "/temperature/set";  // incoming command topic
-    static constexpr char _haWHCurrTemp[] = "/current_temperature";
-    static constexpr char _haWHPower[] = "/power";
-
-    // sensor (temperature)
-    static constexpr char _haSensorTemp[] = "/temperature";
-
-    // binary_sensor (running)
-    static constexpr char _haBinarySensorState[] = "/state";
-
-    // sensor (enum)
-    static constexpr char _haSensorEnum[] = "/state";
-
-    // button cmd
-    static constexpr char _haButtonCmd[] = "/cmd";      // incoming command topic
-
-    
-    //* JSON templates for Home Assistant MQTT configuration and base topic strings
-
-    // Home Assistant MQTT water_heater templates
-    static constexpr char BoilerConfigJsonTemplate[] =
-        "{\n" // Parms: <base_topic>, <device-name>, <entity-name>, commonAvailTopic
-            "'~' : '%0/water_heater/%2',\n"
-            "'name': '%2',\n"
-            "'modes': [\n"
-                "'off',\n"
-                "'eco',\n"
-                "'performance'\n"
-            "],\n"
-
-            "'avty_t' : '%3',\n"
-            "'avty_tpl' : '{{ value_json }}',\n"
-            "'mode_stat_t': '~/mode',\n"
-            "'mode_stat_tpl' : '{{ value_json }}',\n"
-            "'mode_cmd_t': '~/mode/set',\n"
-            "'temp_stat_t': '~/temperature',\n"
-            "'temp_cmd_t': '~/temperature/set',\n"
-            "'curr_temp_t': '~/current_temperature',\n"
-            "'power_command_topic' : '~/power/set',\n"
-            "'max_temp' : '160',\n"
-            "'min_temp' : '65',\n"
-            "'precision': 1.0,\n"
-            "'temp_unit' : 'F',\n"
-            "'init': 101,\n"
-            "'opt' : 'false',\n"
-            "'uniq_id':'%2',\n"
-            "'dev':\n"
-            "{\n"
-                "'identifiers' : ['01'],\n"
-                "'name' : '%1'\n"
-            "}\n"
-        "}\n";
-
-    // JSON template for Home Assistant MQTT base topic for water_heater
-    static constexpr char BoilerBaseTopicJsonTemplate[] = "%0/water_heater/%1";   // Parms: <base_topic>, <entity-name>
-    char*   boilerBaseTopic;      // Boiler Base Topic expanded string
-    int expandedMsgSizeOfBoilerConfigJson;
-
-
-    // Template for Home Assistant MQTT sensor (temperature) configuration
-    static constexpr char ThermometerConfigJsonTemplate[] =
-        "{\n" // Parms: <base_topic>, <device-name>, <entity-name>, commonAvailTopic
-            "'~' : '%0/sensor/%2',\n"
-            "'name': '%2',\n"
-            "'dev_cla' : 'temperature',\n"
-            "'unit_of_meas' : '°F',\n"
-            "'avty_t' : '%3',\n"
-            "'avty_tpl' : '{{ value_json }}',\n"
-            "'stat_t' : '~/temperature',\n"    
-            "'uniq_id' : '%2',\n"
-            "'dev':\n"
-            "{\n"
-                "'identifiers' : ['01'],\n"
-                "'name' : '%1'\n"
-            "}\n"
-        "}\n";
-
-    // JSON template for Home Assistant MQTT base topic for sensor (temperature) topics
-    static constexpr char ThermometerBaseTopicJsonTemplate[] = "%0/sensor/%1"; // Parms: <base_topic>, <entity-name>
-
-    // Our three thermometers
-    char*   ambientThermometerBaseTopic;          // Ambient Thermometer Base Topic expanded string
-    char*   boilerInThermometerBaseTopic;         // Boiler In Thermometer Base Topic expanded string
-    char*   boilerOutThermometerBaseTopic;        // Boiler Out Thermometer Base Topic expanded string
-    int expandedMsgSizeOfAmbientThermometerConfigJson;
-    int expandedMsgSizeOfBoilerInThermometerConfigJson;
-    int expandedMsgSizeOfBoilerOutThermometerConfigJson;
-
-    // Template for Home Assistant MQTT binary_sensor (running) configuration
-    static constexpr char BinarySensorConfigJsonTemplate[] =
-        "{\n" // Parms: <base_topic>, <device-name>, <entity-name>, commonAvailTopic
-            "'~' : '%0/binary_sensor/%2',\n"
-            "'name': '%2',\n"
-            "'avty_t' : '%3',\n"
-            "'avty_tpl' : '{{ value_json }}',\n"
-            "'stat_t' : '~/state',\n"
-            "'val_tpl' : '{{ value_json }}',\n"
-            "'pl_on' : 'On',\n"
-            "'pl_off' : 'Off',\n"
-            "'uniq_id' : '%2',\n"
-            "'dev':\n"
-            "{\n"
-                "'identifiers' : ['01'],\n"
-                "'name' : '%1'\n"
-            "}\n"
-        "}\n";
-
-    // JSON template for Home Assistant MQTT base topic for binary_sensor (running) topics
-    static constexpr char BinarySensorBaseTopicJsonTemplate[] = "%0/binary_sensor/%1"; // Parms: <base_topic>, <entity-name>
-
-    char*   heaterStateBinarySensorBaseTopic;           // Heater State Binary Sensor Base Topic expanded string
-    int     expandedMsgSizeOfHeaterBinarySensorConfigJson;
-
-
-    // Template for Home Assistant MQTT sensor (enum) configuration. This for any "sensor" that wants to just publish
-    // a value that is an enum (e.g. "ON" or "OFF")
-    static constexpr char EnumTextSensorConfigJsonTemplate[] =
-        "{\n" // Parms: <base_topic>, <device-name>, <entity-name>, , commonAvailTopic
-            "'~' : '%0/sensor/%2',\n"
-            "'name': '%2',\n"
-            "'device_class' : 'enum',\n"
-            "'avty_t' : '%3',\n"
-            "'avty_tpl' : '{{ value_json }}',\n"
-            "'stat_t' : '~/state',\n"
-            "'val_tpl' : '{{ value_json }}',\n"
-            "'uniq_id' : '%2',\n"
-            "'dev':\n"
-            "{\n"
-                "'identifiers' : ['01'],\n"
-                "'name' : '%1'\n"
-            "}\n"
-        "}\n";
-
-    // JSON template for Home Assistant MQTT base topic for sensor (enum) topic
-    static constexpr char EnumTextSensorBaseTopicJsonTemplate[] = "%0/sensor/%1"; // Parms: <base_topic>, <entity-name>
-    char* boilerStateSensorBaseTopic;           // Boiler State Sensor Base Topic expanded string
-    int expandedMsgSizeOfBoilerStateSensorConfigJson;
-
-    char* faultReasonSensorBaseTopic;           // Fault Reason Sensor Base Topic expanded string
-    int expandedMsgSizeOfFaultReasonSensorConfigJson;
-
-    // JSON template for Home Assistant MQTT button configuration
-    static constexpr char ButtonConfigJsonTemplate[] =
-        "{\n" // Parms: <base_topic>, <device-name>, <entity-name>, commonAvailTopic
-            "'~' : '%0/button/%2',\n"
-            "'name': '%2',\n"
-            "'avty_t' : '%3',\n"
-            "'avty_tpl' : '{{ value_json }}',\n"
-            "'command_topic' : '~/cmd',\n"
-            "'device_class' : 'restart',\n"
-            "'uniq_id' : '%2',\n"
-            "'dev':\n"
-            "{\n"
-                "'identifiers' : ['01'],\n"
-                "'name' : '%1'\n"
-            "}\n"
-        "}\n";
-
-
-    // JSON template for Home Assistant MQTT base topic for button topics
-    static constexpr char ButtonBaseTopicJsonTemplate[] = "%0/button/%1"; // Parms: <base_topic>, <entity-name>
-    char*   resetButtonBaseTopic;           // Reset Button Base Topic expanded string
-    int expandedMsgSizeOfResetButtonConfigJson;
-    char*   startButtonBaseTopic;           // Start Button Base Topic expanded string
-    int expandedMsgSizeOfStartButtonConfigJson;
-    char*   stopButtonBaseTopic;            // Stop Button Base Topic expanded string
-    int expandedMsgSizeOfStopButtonConfigJson;
-    char*   rebootButtonBaseTopic;          // Reboot Button Base Topic expanded string
-    int expandedMsgSizeOfRebootButtonConfigJson;
-
-
-    //* Describes a Home Assistant entity for the sake of building the /config and /avail messages
-    class HaEntityDesc
-    {
-    public:
-        const char* const _EntityName;
-        const char* const _ConfigJsonTemplate;
-        const char* const _BaseTopicJsonTemplate;
-        char** _BaseTopicResult;
-        int* _ExpandedMsgSizeResult;
-    
-        HaEntityDesc() = delete;
-        HaEntityDesc(const char* EntityName, const char* ConfigJsonTemplate, const char* BaseTopicJsonTemplate, char** BaseTopicResult, int* ExpandedMsgSizeResult) :
-            _EntityName(EntityName), 
-            _ConfigJsonTemplate(ConfigJsonTemplate), 
-            _BaseTopicJsonTemplate(BaseTopicJsonTemplate), 
-            _BaseTopicResult(BaseTopicResult), 
-            _ExpandedMsgSizeResult(ExpandedMsgSizeResult)
-        {}
-    };
-
-    // Describes all Home Assistant entities - for building the /config and /avail messages
-    // TODO: Enhance this to support the scheduling of the sending of /config and /avail messages. A Timer() is
-    //       instance& will be carried with each entry. For each entity above we will declare such a Timer() instance.
-    //       There will be a method that looks at one entry per call and if the timer is expired the corresponding /config
-    //       and /avail messages will be sent. The timer will be reset. When the method does detect an Alarm, it will
-    //       will send the /config and then one the next call, it will send the /avail message... This timer needs to
-    //       also cause the sending of related property messages. 
-    HaEntityDesc _entityDescs[] = 
-    {
-        HaEntityDesc(_defaultBoilerName, BoilerConfigJsonTemplate, BoilerBaseTopicJsonTemplate, &boilerBaseTopic, &expandedMsgSizeOfBoilerConfigJson),
-        HaEntityDesc(_defaultAmbientTempName, ThermometerConfigJsonTemplate, ThermometerBaseTopicJsonTemplate, &ambientThermometerBaseTopic, &expandedMsgSizeOfAmbientThermometerConfigJson),
-        HaEntityDesc(_defaultBoilerInTempName, ThermometerConfigJsonTemplate, ThermometerBaseTopicJsonTemplate, &boilerInThermometerBaseTopic, &expandedMsgSizeOfBoilerInThermometerConfigJson),
-        HaEntityDesc(_defaultBoilerOutTempName, ThermometerConfigJsonTemplate, ThermometerBaseTopicJsonTemplate, &boilerOutThermometerBaseTopic, &expandedMsgSizeOfBoilerOutThermometerConfigJson),
-        HaEntityDesc(_defaultHeaterStateName, BinarySensorConfigJsonTemplate, BinarySensorBaseTopicJsonTemplate, &heaterStateBinarySensorBaseTopic, &expandedMsgSizeOfHeaterBinarySensorConfigJson),
-        HaEntityDesc(_defaultBoilerStateName, EnumTextSensorConfigJsonTemplate, EnumTextSensorBaseTopicJsonTemplate, &boilerStateSensorBaseTopic, &expandedMsgSizeOfBoilerStateSensorConfigJson),
-        HaEntityDesc(_defaultFaultReasonName, EnumTextSensorConfigJsonTemplate, EnumTextSensorBaseTopicJsonTemplate, &faultReasonSensorBaseTopic, &expandedMsgSizeOfFaultReasonSensorConfigJson),
-        HaEntityDesc(_defaultResetButtonName, ButtonConfigJsonTemplate, ButtonBaseTopicJsonTemplate, &resetButtonBaseTopic, &expandedMsgSizeOfResetButtonConfigJson),
-        HaEntityDesc(_defaultStartButtonName, ButtonConfigJsonTemplate, ButtonBaseTopicJsonTemplate, &startButtonBaseTopic, &expandedMsgSizeOfStartButtonConfigJson),
-        HaEntityDesc(_defaultRebootButtonName, ButtonConfigJsonTemplate, ButtonBaseTopicJsonTemplate, &rebootButtonBaseTopic, &expandedMsgSizeOfRebootButtonConfigJson),
-        HaEntityDesc(_defaultStopButtonName, ButtonConfigJsonTemplate, ButtonBaseTopicJsonTemplate, &stopButtonBaseTopic, &expandedMsgSizeOfStopButtonConfigJson),
-    };
-    int _entityDescCount = sizeof(_entityDescs) / sizeof(HaEntityDesc);
-
-
-
-    //* Helper to build expanded topic strings
-    int BuildTopicString(const char& Template, char*& Result, const char* BaseTopic, const char* EntityName)
-    {
-        PrintOutputCounter counter;
-        size_t size = ExpandJson(counter, &Template, BaseTopic, EntityName); // Get size of expanded string
-        $Assert(size > 0); // Error in template
-
-        Result = new char[size + 1];                // Leave room for null terminator
-        $Assert(Result != nullptr);                 // Out of memory
-        BufferPrinter printer(Result, size);
-
-        $Assert(ExpandJson(printer, &Template, BaseTopic, EntityName) == size); // Expand template into buffer
-        return size;
-    }
-
-    // Helper to build all expanded topic strings and compute sizes of the expanded HA entity /config JSON strings
-    void InitStrings(FlashStore<HA_MqttConfig, PS_MQTTBrokerConfigBase> *Config)
-    {
-        $Assert(Config->IsValid());
-
-        PrintOutputCounter counter;
-
-        //* Build the common avail topic string
-        int sizeNeeded = ExpandJson(counter, _commonAvailTopicTemplate, Config->GetRecord()._haDeviceName) + 1;
-        commonAvailTopic = new char[sizeNeeded];
-        $Assert(commonAvailTopic != nullptr);
-
-        BufferPrinter printer(commonAvailTopic, sizeNeeded);
-        $Assert(ExpandJson(printer, _commonAvailTopicTemplate, Config->GetRecord()._haDeviceName) == (sizeNeeded - 1));
-        $Assert(strlen(commonAvailTopic) == (sizeNeeded - 1));
-
-        //* Build each topic base string
-        for (int i = 0; i < _entityDescCount; i++)
+        size_t BufferPrinter::write(const uint8_t *buffer, size_t size)
         {
-            HaEntityDesc& desc = _entityDescs[i];
-            BuildTopicString(*desc._BaseTopicJsonTemplate, *desc._BaseTopicResult, Config->GetRecord()._baseHATopic, desc._EntityName);
+            size_t bytesToCopy = std::min(size, static_cast<size_t>(_maxSize - _size));
+            if (bytesToCopy > 0)
+            {
+                memcpy(&_buffer[_size], buffer, bytesToCopy);
+                _size += bytesToCopy;
+            }
+            _buffer[_size] = 0;
+            return bytesToCopy;
         }
 
-        //* Compute sizes of the expanded HA entity /config JSON strings - this allows the use of a streaming for of 
-        //  MqttClient::BeginMessage(); thus reducing memory usage by avoiding the need to allocate a larger buffer for 
-        //  the JSON string
-        for (int i = 0; i < _entityDescCount; i++)
+        //* Utility function for expanding a JSON template string using passed parameters into a Print object
+        //  For example this function is used to expand a JSON template string direct;ly into a MqttClient 
+        //  message stream
+        size_t ExpandJson(Print &To, const char *JsonFormat, ...)
         {
-            HaEntityDesc &desc = _entityDescs[i];
+            uint32_t(*va_list)[0] = VarArgsBase(&JsonFormat);
+            size_t result = 0;
 
-            *desc._ExpandedMsgSizeResult = ExpandJson(
-                counter,
-                desc._ConfigJsonTemplate,
-                Config->GetRecord()._baseHATopic,
-                Config->GetRecord()._haDeviceName,
-                desc._EntityName,
-                commonAvailTopic);
-            $Assert(*desc._ExpandedMsgSizeResult > 0);
+            char *p = (char *)JsonFormat;
+            while (*p)
+            {
+                if (*p == '%')
+                {
+                    p++;
+
+                    if (isdigit(*p))
+                    {
+                        int index = *p - '0';
+                        if ((index <= 9) && (index >= 0))
+                        {
+                            result += To.print((char *)((*va_list)[index]));
+                        }
+                    }
+                    else if (*p == '%')
+                    {
+                        result += To.print('%');
+                    }
+                    else
+                    {
+                        Serial.print("Error: Invalid format specifier: ");
+                        return 0;
+                    }
+                }
+                else if (*p == '\'')
+                {
+                    result += To.print('"');
+                }
+                else
+                {
+                    result += To.print(*p);
+                }
+                p++;
+            }
+
+            return result;
         }
-    }
 
-    //* Flash store for MQTT configuration
-    FlashStore<HA_MqttConfig, PS_MQTTBrokerConfigBase> mqttConfig;
-    static_assert(PS_MQTTBrokerConfigBlkSize >= sizeof(FlashStore<HA_MqttConfig, PS_MQTTBrokerConfigBase>));
-} // namespace HA_Mqtt
+        
+        //* Home Assistant MQTT Namespace Names
+        static constexpr char _defaultBaseTopic[] = "homeassistant";
+        static constexpr char _haAvailTopicSuffix[] = "status";
+            static constexpr char _haAvailOnline[] = "online";
+            static constexpr char _haAvailOffline[] = "offline";
+
+        static constexpr char _defaultDeviceName[] = "SpaHeater";
+        static constexpr char _defaultBoilerName[] = "Boiler"; 
+        static constexpr char _defaultBoilerInTempName[] = "BoilerInTemp";
+        static constexpr char _defaultBoilerOutTempName[] = "BoilerOutTemp";
+        static constexpr char _defaultAmbientTempName[] = "AmbientTemp";
+        static constexpr char _defaultHeaterStateName[] = "HeatingElement";
+        static constexpr char _defaultBoilerStateName[] = "BoilerState";
+        static constexpr char _defaultFaultReasonName[] = "FaultReason";
+        static constexpr char _defaultResetButtonName[] = "ResetButton";
+        static constexpr char _defaultStartButtonName[] = "StartButton";
+        static constexpr char _defaultStopButtonName[] = "StopButton";
+        static constexpr char _defaultRebootButtonName[] = "RebootButton";
+
+        //* HA MQTT Intg Topic strings
+        static constexpr char _haIntgAvailSuffix[] = "/status";
+
+        //* Common Avail Topic for all entities
+        static constexpr char _commonAvailTopicTemplate[] = "TinyBus/%0/avail";     // Device Name
+        char*   commonAvailTopic;      // Common Avail Topic expanded string
+
+        //* MQTT Topic suffixes for Home Assistant MQTT supported entity platforms
+        // Common
+        static constexpr char _haConfig[] = "/config";
+        static constexpr char _haAvail[] = "/avail";
+
+        // water_heater
+        static constexpr char _haWHMode[] = "/mode";
+        static constexpr char _haWHModeSet[] = "/mode/set";             // incoming command topic
+        static constexpr char _haWHSetpoint[] = "/temperature";
+        static constexpr char _haWHSetpointSet[] = "/temperature/set";  // incoming command topic
+        static constexpr char _haWHCurrTemp[] = "/current_temperature";
+        static constexpr char _haWHPower[] = "/power";
+
+        // sensor (temperature)
+        static constexpr char _haSensorTemp[] = "/temperature";
+
+        // binary_sensor (running)
+        static constexpr char _haBinarySensorState[] = "/state";
+
+        // sensor (enum)
+        static constexpr char _haSensorEnum[] = "/state";
+
+        // button cmd
+        static constexpr char _haButtonCmd[] = "/cmd";      // incoming command topic
+
+        
+        //* JSON templates for Home Assistant MQTT configuration and base topic strings
+
+        // Home Assistant MQTT water_heater templates
+        static constexpr char BoilerConfigJsonTemplate[] =
+            "{\n" // Parms: <base_topic>, <device-name>, <entity-name>, commonAvailTopic
+                "'~' : '%0/water_heater/%2',\n"
+                "'name': '%2',\n"
+                "'modes': [\n"
+                    "'off',\n"
+                    "'eco',\n"
+                    "'performance'\n"
+                "],\n"
+
+                "'avty_t' : '%3',\n"
+                "'avty_tpl' : '{{ value_json }}',\n"
+                "'mode_stat_t': '~/mode',\n"
+                "'mode_stat_tpl' : '{{ value_json }}',\n"
+                "'mode_cmd_t': '~/mode/set',\n"
+                "'temp_stat_t': '~/temperature',\n"
+                "'temp_cmd_t': '~/temperature/set',\n"
+                "'curr_temp_t': '~/current_temperature',\n"
+                "'power_command_topic' : '~/power/set',\n"
+                "'max_temp' : '160',\n"
+                "'min_temp' : '65',\n"
+                "'precision': 1.0,\n"
+                "'temp_unit' : 'F',\n"
+                "'init': 101,\n"
+                "'opt' : 'false',\n"
+                "'uniq_id':'%2',\n"
+                "'dev':\n"
+                "{\n"
+                    "'identifiers' : ['01'],\n"
+                    "'name' : '%1'\n"
+                "}\n"
+            "}\n";
+
+        // JSON template for Home Assistant MQTT base topic for water_heater
+        static constexpr char BoilerBaseTopicJsonTemplate[] = "%0/water_heater/%1";   // Parms: <base_topic>, <entity-name>
+        char*   boilerBaseTopic;      // Boiler Base Topic expanded string
+        int expandedMsgSizeOfBoilerConfigJson;
 
 
-using namespace HA_Mqtt;
+        // Template for Home Assistant MQTT sensor (temperature) configuration
+        static constexpr char ThermometerConfigJsonTemplate[] =
+            "{\n" // Parms: <base_topic>, <device-name>, <entity-name>, commonAvailTopic
+                "'~' : '%0/sensor/%2',\n"
+                "'name': '%2',\n"
+                "'dev_cla' : 'temperature',\n"
+                "'unit_of_meas' : '°F',\n"
+                "'avty_t' : '%3',\n"
+                "'avty_tpl' : '{{ value_json }}',\n"
+                "'stat_t' : '~/temperature',\n"    
+                "'uniq_id' : '%2',\n"
+                "'dev':\n"
+                "{\n"
+                    "'identifiers' : ['01'],\n"
+                    "'name' : '%1'\n"
+                "}\n"
+            "}\n";
 
-HA_MqttClient mqttClient;
+        // JSON template for Home Assistant MQTT base topic for sensor (temperature) topics
+        static constexpr char ThermometerBaseTopicJsonTemplate[] = "%0/sensor/%1"; // Parms: <base_topic>, <entity-name>
 
+        // Our three thermometers
+        char*   ambientThermometerBaseTopic;          // Ambient Thermometer Base Topic expanded string
+        char*   boilerInThermometerBaseTopic;         // Boiler In Thermometer Base Topic expanded string
+        char*   boilerOutThermometerBaseTopic;        // Boiler Out Thermometer Base Topic expanded string
+        int expandedMsgSizeOfAmbientThermometerConfigJson;
+        int expandedMsgSizeOfBoilerInThermometerConfigJson;
+        int expandedMsgSizeOfBoilerOutThermometerConfigJson;
+
+        // Template for Home Assistant MQTT binary_sensor (running) configuration
+        static constexpr char BinarySensorConfigJsonTemplate[] =
+            "{\n" // Parms: <base_topic>, <device-name>, <entity-name>, commonAvailTopic
+                "'~' : '%0/binary_sensor/%2',\n"
+                "'name': '%2',\n"
+                "'avty_t' : '%3',\n"
+                "'avty_tpl' : '{{ value_json }}',\n"
+                "'stat_t' : '~/state',\n"
+                "'val_tpl' : '{{ value_json }}',\n"
+                "'pl_on' : 'On',\n"
+                "'pl_off' : 'Off',\n"
+                "'uniq_id' : '%2',\n"
+                "'dev':\n"
+                "{\n"
+                    "'identifiers' : ['01'],\n"
+                    "'name' : '%1'\n"
+                "}\n"
+            "}\n";
+
+        // JSON template for Home Assistant MQTT base topic for binary_sensor (running) topics
+        static constexpr char BinarySensorBaseTopicJsonTemplate[] = "%0/binary_sensor/%1"; // Parms: <base_topic>, <entity-name>
+
+        char*   heaterStateBinarySensorBaseTopic;           // Heater State Binary Sensor Base Topic expanded string
+        int     expandedMsgSizeOfHeaterBinarySensorConfigJson;
+
+
+        // Template for Home Assistant MQTT sensor (enum) configuration. This for any "sensor" that wants to just publish
+        // a value that is an enum (e.g. "ON" or "OFF")
+        static constexpr char EnumTextSensorConfigJsonTemplate[] =
+            "{\n" // Parms: <base_topic>, <device-name>, <entity-name>, , commonAvailTopic
+                "'~' : '%0/sensor/%2',\n"
+                "'name': '%2',\n"
+                "'device_class' : 'enum',\n"
+                "'avty_t' : '%3',\n"
+                "'avty_tpl' : '{{ value_json }}',\n"
+                "'stat_t' : '~/state',\n"
+                "'val_tpl' : '{{ value_json }}',\n"
+                "'uniq_id' : '%2',\n"
+                "'dev':\n"
+                "{\n"
+                    "'identifiers' : ['01'],\n"
+                    "'name' : '%1'\n"
+                "}\n"
+            "}\n";
+
+        // JSON template for Home Assistant MQTT base topic for sensor (enum) topic
+        static constexpr char EnumTextSensorBaseTopicJsonTemplate[] = "%0/sensor/%1"; // Parms: <base_topic>, <entity-name>
+        char* boilerStateSensorBaseTopic;           // Boiler State Sensor Base Topic expanded string
+        int expandedMsgSizeOfBoilerStateSensorConfigJson;
+
+        char* faultReasonSensorBaseTopic;           // Fault Reason Sensor Base Topic expanded string
+        int expandedMsgSizeOfFaultReasonSensorConfigJson;
+
+        // JSON template for Home Assistant MQTT button configuration
+        static constexpr char ButtonConfigJsonTemplate[] =
+            "{\n" // Parms: <base_topic>, <device-name>, <entity-name>, commonAvailTopic
+                "'~' : '%0/button/%2',\n"
+                "'name': '%2',\n"
+                "'avty_t' : '%3',\n"
+                "'avty_tpl' : '{{ value_json }}',\n"
+                "'command_topic' : '~/cmd',\n"
+                "'device_class' : 'restart',\n"
+                "'uniq_id' : '%2',\n"
+                "'dev':\n"
+                "{\n"
+                    "'identifiers' : ['01'],\n"
+                    "'name' : '%1'\n"
+                "}\n"
+            "}\n";
+
+
+        // JSON template for Home Assistant MQTT base topic for button topics
+        static constexpr char ButtonBaseTopicJsonTemplate[] = "%0/button/%1"; // Parms: <base_topic>, <entity-name>
+        char*   resetButtonBaseTopic;           // Reset Button Base Topic expanded string
+        int expandedMsgSizeOfResetButtonConfigJson;
+        char*   startButtonBaseTopic;           // Start Button Base Topic expanded string
+        int expandedMsgSizeOfStartButtonConfigJson;
+        char*   stopButtonBaseTopic;            // Stop Button Base Topic expanded string
+        int expandedMsgSizeOfStopButtonConfigJson;
+        char*   rebootButtonBaseTopic;          // Reboot Button Base Topic expanded string
+        int expandedMsgSizeOfRebootButtonConfigJson;
+
+
+        //* Describes a Home Assistant entity for the sake of building the /config and /avail messages
+        class HaEntityDesc
+        {
+        public:
+            const char* const _EntityName;
+            const char* const _ConfigJsonTemplate;
+            const char* const _BaseTopicJsonTemplate;
+            char** _BaseTopicResult;
+            int* _ExpandedMsgSizeResult;
+        
+            HaEntityDesc() = delete;
+            HaEntityDesc(const char* EntityName, const char* ConfigJsonTemplate, const char* BaseTopicJsonTemplate, char** BaseTopicResult, int* ExpandedMsgSizeResult) :
+                _EntityName(EntityName), 
+                _ConfigJsonTemplate(ConfigJsonTemplate), 
+                _BaseTopicJsonTemplate(BaseTopicJsonTemplate), 
+                _BaseTopicResult(BaseTopicResult), 
+                _ExpandedMsgSizeResult(ExpandedMsgSizeResult)
+            {}
+        };
+
+        // Describes all Home Assistant entities - for building the /config and /avail messages
+        HaEntityDesc _entityDescs[] = 
+        {
+            HaEntityDesc(_defaultBoilerName, BoilerConfigJsonTemplate, BoilerBaseTopicJsonTemplate, &boilerBaseTopic, &expandedMsgSizeOfBoilerConfigJson),
+            HaEntityDesc(_defaultAmbientTempName, ThermometerConfigJsonTemplate, ThermometerBaseTopicJsonTemplate, &ambientThermometerBaseTopic, &expandedMsgSizeOfAmbientThermometerConfigJson),
+            HaEntityDesc(_defaultBoilerInTempName, ThermometerConfigJsonTemplate, ThermometerBaseTopicJsonTemplate, &boilerInThermometerBaseTopic, &expandedMsgSizeOfBoilerInThermometerConfigJson),
+            HaEntityDesc(_defaultBoilerOutTempName, ThermometerConfigJsonTemplate, ThermometerBaseTopicJsonTemplate, &boilerOutThermometerBaseTopic, &expandedMsgSizeOfBoilerOutThermometerConfigJson),
+            HaEntityDesc(_defaultHeaterStateName, BinarySensorConfigJsonTemplate, BinarySensorBaseTopicJsonTemplate, &heaterStateBinarySensorBaseTopic, &expandedMsgSizeOfHeaterBinarySensorConfigJson),
+            HaEntityDesc(_defaultBoilerStateName, EnumTextSensorConfigJsonTemplate, EnumTextSensorBaseTopicJsonTemplate, &boilerStateSensorBaseTopic, &expandedMsgSizeOfBoilerStateSensorConfigJson),
+            HaEntityDesc(_defaultFaultReasonName, EnumTextSensorConfigJsonTemplate, EnumTextSensorBaseTopicJsonTemplate, &faultReasonSensorBaseTopic, &expandedMsgSizeOfFaultReasonSensorConfigJson),
+            HaEntityDesc(_defaultResetButtonName, ButtonConfigJsonTemplate, ButtonBaseTopicJsonTemplate, &resetButtonBaseTopic, &expandedMsgSizeOfResetButtonConfigJson),
+            HaEntityDesc(_defaultStartButtonName, ButtonConfigJsonTemplate, ButtonBaseTopicJsonTemplate, &startButtonBaseTopic, &expandedMsgSizeOfStartButtonConfigJson),
+            HaEntityDesc(_defaultRebootButtonName, ButtonConfigJsonTemplate, ButtonBaseTopicJsonTemplate, &rebootButtonBaseTopic, &expandedMsgSizeOfRebootButtonConfigJson),
+            HaEntityDesc(_defaultStopButtonName, ButtonConfigJsonTemplate, ButtonBaseTopicJsonTemplate, &stopButtonBaseTopic, &expandedMsgSizeOfStopButtonConfigJson),
+        };
+        int _entityDescCount = sizeof(_entityDescs) / sizeof(HaEntityDesc);
+
+
+        //* Flash store for MQTT configuration
+        FlashStore<HA_MqttConfig, PS_MQTTBrokerConfigBase> mqttConfig;
+        static_assert(PS_MQTTBrokerConfigBlkSize >= sizeof(FlashStore<HA_MqttConfig, PS_MQTTBrokerConfigBase>));
+    } // namespace HA_Mqtt
+} // namespace TinyBus
+
+
+using namespace TinyBus::HA_Mqtt;
 
 //** HA_MqttClient class implementation - Setup for the MQTT client task. 
 //   This function is called from the main setup() function
@@ -492,7 +429,66 @@ void HA_MqttClient::setup()
         logger.Printf(Logger::RecType::Info, "MQTT Config is valid");
     }
 
-    InitStrings(&mqttConfig);
+    //** Build all expanded topic strings and compute sizes of the expanded HA entity /config JSON strings
+    $Assert(mqttConfig.IsValid());
+
+    PrintOutputCounter counter;
+
+    //* Build the common avail topic string
+    int sizeNeeded = ExpandJson(counter, _commonAvailTopicTemplate, mqttConfig.GetRecord()._haDeviceName) + 1;
+    commonAvailTopic = new char[sizeNeeded];
+    $Assert(commonAvailTopic != nullptr);
+
+    BufferPrinter printer(commonAvailTopic, sizeNeeded);
+    $Assert(ExpandJson(printer, _commonAvailTopicTemplate, mqttConfig.GetRecord()._haDeviceName) == (sizeNeeded - 1));
+    $Assert(strlen(commonAvailTopic) == (sizeNeeded - 1));
+
+    //* Helper to build expanded topic strings
+    static auto BuildTopicString = [](
+        const char &Template, 
+        char *&Result, 
+        const char *BaseTopic, 
+        const char *EntityName) -> int
+    {
+        PrintOutputCounter counter;
+        size_t size = ExpandJson(counter, &Template, BaseTopic, EntityName); // Get size of expanded string
+        $Assert(size > 0);                                                   // Error in template
+
+        Result = new char[size + 1]; // Leave room for null terminator
+        $Assert(Result != nullptr);  // Out of memory
+        BufferPrinter printer(Result, size);
+
+        $Assert(ExpandJson(printer, &Template, BaseTopic, EntityName) == size); // Expand template into buffer
+        return size;
+    };
+
+    //* Build each topic base string
+    for (int i = 0; i < _entityDescCount; i++)
+    {
+        HaEntityDesc &desc = _entityDescs[i];
+        BuildTopicString(
+            *desc._BaseTopicJsonTemplate, 
+            *desc._BaseTopicResult, 
+            mqttConfig.GetRecord()._baseHATopic, 
+            desc._EntityName);
+    }
+
+    //* Compute sizes of the expanded HA entity /config JSON strings - this allows the use of a streaming for of
+    //  MqttClient::BeginMessage(); thus reducing memory usage by avoiding the need to allocate a larger buffer for
+    //  the JSON string
+    for (int i = 0; i < _entityDescCount; i++)
+    {
+        HaEntityDesc &desc = _entityDescs[i];
+
+        *desc._ExpandedMsgSizeResult = ExpandJson(
+            counter,
+            desc._ConfigJsonTemplate,
+            mqttConfig.GetRecord()._baseHATopic,
+            mqttConfig.GetRecord()._haDeviceName,
+            desc._EntityName,
+            commonAvailTopic);
+        $Assert(*desc._ExpandedMsgSizeResult > 0);
+    }
 }
 
 
@@ -807,82 +803,82 @@ void HA_MqttClient::loop()
                 {
                     case SendState::SendBoilerInTemp:
                     {
-                        sendState.ChangeState(SendState::SendBoilerThermometer);
                         if (doBoilerInTemp)
                         {
                             doBoilerInTemp = false;
+                            sendState.ChangeState(SendState::SendBoilerThermometer);
                             return SendPropertyMsg(MqttClient, boilerBaseTopic, _haWHCurrTemp, $CtoF(tempState._boilerInTemp));
                         }
                     }
                     case SendState::SendBoilerThermometer:
                     {
-                        sendState.ChangeState(SendState::SendBoilerOutTemp);
                         if (doBoilerThermometer)
                         {
                             doBoilerThermometer = false;
+                            sendState.ChangeState(SendState::SendBoilerOutTemp);
                             return SendPropertyMsg(MqttClient, boilerInThermometerBaseTopic, _haSensorTemp, $CtoF(tempState._boilerInTemp));
                         }
                     }
                     case SendState::SendBoilerOutTemp:
                     {
-                        sendState.ChangeState(SendState::SendAmbientTemp);
                         if (doBoilerOutTemp)
                         {
                             doBoilerOutTemp = false;
+                            sendState.ChangeState(SendState::SendAmbientTemp);
                             return SendPropertyMsg(MqttClient, boilerOutThermometerBaseTopic, _haSensorTemp, $CtoF(tempState._boilerOutTemp));
                         }
                     }
                     case SendState::SendAmbientTemp:
                     {
-                        sendState.ChangeState(SendState::SendHeaterState);
                         if (doAmbientTemp)
                         {
                             doAmbientTemp = false;
+                            sendState.ChangeState(SendState::SendHeaterState);
                             return SendPropertyMsg(MqttClient, ambientThermometerBaseTopic, _haSensorTemp, $CtoF(tempState._ambiantTemp));
                         }
                     }
                     case SendState::SendHeaterState:
                     {
-                        sendState.ChangeState(SendState::SendBoilerState);
                         if (doHeaterState)
                         {
                             doHeaterState = false;
+                            sendState.ChangeState(SendState::SendBoilerState);
                             return SendPropertyMsgStr(MqttClient, heaterStateBinarySensorBaseTopic, _haBinarySensorState, tempState._heaterOn ? "On" : "Off");
                         }
                     }
                     case SendState::SendBoilerState:
                     {
-                        sendState.ChangeState(SendState::SendFaultReason);
                         if (doBoilerState)
                         {
                             doBoilerState = false;
+                            sendState.ChangeState(SendState::SendFaultReason);
                             return SendPropertyMsgStr(MqttClient, boilerStateSensorBaseTopic, _haSensorEnum, BoilerControllerTask::GetStateMachineStateDescription(lastHeaterState));
                         }
                     }
                     case SendState::SendFaultReason:
                     {
-                        sendState.ChangeState(SendState::SendSetPoint);
                         if (doFaultReason)
                         {
                             doFaultReason = false;
+                            sendState.ChangeState(SendState::SendSetPoint);
                             return SendPropertyMsgStr(MqttClient, faultReasonSensorBaseTopic, _haSensorEnum, BoilerControllerTask::GetFaultReasonDescription(lastFaultReason));
                         }
                     }
                     case SendState::SendSetPoint:
                     {
-                        sendState.ChangeState(SendState::SendBoilerMode);
                         if (doSetPoint)
                         {
                             doSetPoint = false;
+                            sendState.ChangeState(SendState::SendBoilerMode);
                             return SendPropertyMsg(MqttClient, boilerBaseTopic, _haWHSetpoint, $CtoF(lastTargetTemps._setPoint));
                         }
                     }
                     case SendState::SendBoilerMode:
                     {
-                        sendState.ChangeState(SendState::Done);
                         if (doBoilerMode)
                         {
                             doBoilerMode = false;
+                            sendState.ChangeState(SendState::Done);
                             return SendPropertyMsgStr(MqttClient, boilerBaseTopic, _haWHMode, BoilerControllerTask::GetBoilerModeDescription(lastBoilerMode));
                         }
                     }
@@ -911,6 +907,7 @@ void HA_MqttClient::loop()
     using NotificationHandler = std::function<bool(const char *)>;  // A subscription notification handler function type
 
     //* Notification handlers for each MQTT subscription topic
+    // Mode Set command
     static NotificationHandler HandleWHModeSet = [] (const char *Payload) -> bool
     {
         logger.Printf(Logger::RecType::Info, "Received WH Mode Set command: %s", Payload);
@@ -936,6 +933,7 @@ void HA_MqttClient::loop()
         return true;
     };
 
+    // Setpoint Set command
     static NotificationHandler HandleWHSetpointSet = [] (const char *Payload) -> bool
     {
         logger.Printf(Logger::RecType::Info, "Received WH Setpoint Set command: %s", Payload);
@@ -960,6 +958,7 @@ void HA_MqttClient::loop()
         return true;
     };
 
+    // Reset Button command
     static NotificationHandler HandleResetButtonCmd = [] (const char *Payload) -> bool
     {
         logger.Printf(Logger::RecType::Info, "Received Reset Button Event: %s", Payload);
@@ -967,6 +966,7 @@ void HA_MqttClient::loop()
         return true;
     };
 
+    // Start Button command
     static NotificationHandler HandleStartButtonCmd = [] (const char *Payload) -> bool
     {
         logger.Printf(Logger::RecType::Info, "Received Start Button Event: %s", Payload);
@@ -974,6 +974,7 @@ void HA_MqttClient::loop()
         return true;
     };
 
+    // Stop Button command
     static NotificationHandler HandleStopButtonCmd = [] (const char *Payload) -> bool
     {
         logger.Printf(Logger::RecType::Info, "Received Stop Button Event: %s", Payload);
@@ -981,6 +982,7 @@ void HA_MqttClient::loop()
         return true;
     };
 
+    // Reboot Button command
     static NotificationHandler HandleRebootButtonCmd = [] (const char *Payload) -> bool
     {
         logger.Printf(Logger::RecType::Info, "Received Reboot Button Event: %s", Payload);
@@ -991,6 +993,7 @@ void HA_MqttClient::loop()
         return true;
     };
 
+    // Home Assistant Integration Available event
     static bool HAIntgAvailCameTrue = false;
 
     static NotificationHandler HandleHAIntgAvailEvent = [](const char *Payload) -> bool
@@ -1038,7 +1041,7 @@ void HA_MqttClient::loop()
     };
     static int subscribedTopicCount = sizeof(subscribedTopics) / sizeof(SubscribedTopic);
 
-    //* Notification dispatcher for incoming MQTT messages
+    //* Notification dispatcher for incoming MQTT messages - called from the onMessage() handler lambda
     static auto OnMessage = [](int msgSize, MqttClient &Client) -> void
     {
         // Process the incoming message
@@ -1068,8 +1071,14 @@ void HA_MqttClient::loop()
         }
     };
 
+    
+    
     //******************************************************************************
     //** State machine implementation for MQTT client
+
+    static WiFiClient wifiClient;
+    static MqttClient mqttClient(wifiClient);
+
     enum class State
     {
         WaitForWiFi,
@@ -1081,12 +1090,9 @@ void HA_MqttClient::loop()
     };
     static StateMachineState<State> state(State::WaitForWiFi);
 
-    static WiFiClient wifiClient;
-    static MqttClient mqttClient(wifiClient);
-
-
     switch ((State)state)
     {
+        //* Delay while waiting for WiFi to connect and be available
         case State::WaitForWiFi:
         {
             enum class WiFiStatus
@@ -1102,6 +1108,7 @@ void HA_MqttClient::loop()
                 wifiState.ChangeState(WiFiStatus::Unknown);
             }
 
+            // inner state machine to handle the WiFi connection, delays, and retries
             switch ((WiFiStatus)wifiState)
             {
                 static Timer delayTimer;
@@ -1112,7 +1119,8 @@ void HA_MqttClient::loop()
                     static int wifiStatus = WiFi.status();
                     if (wifiStatus == WL_CONNECTED)
                     {
-                        delayTimer.SetAlarm(4000);      // allow some settling time
+                        // WiFi is already connected - delay - allow some settling time
+                        delayTimer.SetAlarm(4000);
                         wifiState.ChangeState(WiFiStatus::Connected);
                         return;
                     }
@@ -1123,7 +1131,8 @@ void HA_MqttClient::loop()
                 }
                 break;
 
-                case WiFiStatus::Connected:     // Delay before connecting to broker
+                // WiFi is connected - delay before connecting to broker
+                case WiFiStatus::Connected:
                 {
                     if (delayTimer.IsAlarmed())
                     {
@@ -1132,7 +1141,8 @@ void HA_MqttClient::loop()
                 }
                 break;
 
-                case WiFiStatus::Disconnected:  // Delay before retrying WiFi connection
+                // WiFi is disconnected - delay before retrying WiFi connection
+                case WiFiStatus::Disconnected:
                 {
                     if (delayTimer.IsAlarmed())
                     {
@@ -1144,6 +1154,7 @@ void HA_MqttClient::loop()
         }
         break;
 
+        //* Connect to the MQTT broker; if successful, then send subscriptions to Home Assistant
         case State::ConnectingToBroker:
         {
             static IPAddress brokerIP;
@@ -1161,6 +1172,7 @@ void HA_MqttClient::loop()
 
             if (!mqttClient.connect(brokerIP, mqttConfig.GetRecord()._brokerPort))
             {
+                // failed for some reason
                 // TODO: Keep track of the number of failed attempts to connect to the broker. If it exceeds a threshold and
                 // there are no other network connections, then reset the WiFi. Do this after Network is cleaned up.
                 logger.Printf(Logger::RecType::Critical, "Failed to connect to MQTT Broker - delaying 5 secs and retrying");
@@ -1168,7 +1180,7 @@ void HA_MqttClient::loop()
                 return;
             }
 
-            logger.Printf(Logger::RecType::Info, "Connected to MQTT Broker - publishing initial /config and /avail messages to Home Assistant");   
+            logger.Printf(Logger::RecType::Info, "Connected to MQTT Broker - sending subscriptions to Home Assistant");
 
             // Set the message handler for incoming messages
             HAIntgAvailCameTrue = false;
@@ -1179,6 +1191,7 @@ void HA_MqttClient::loop()
         }
         break;
 
+        //* Send all subscriptions to Home Assistant
         case State::SendSubscriptions:
         {
             // Subscribe to all the Home Assistant incoming topics of interest - only one subscription per call
@@ -1215,6 +1228,7 @@ void HA_MqttClient::loop()
         }
         break;
 
+        //* Send all /config messages to Home Assistant
         case State::SendConfigs:
         {
             // Publish the Home Assistant /config JSON strings for each entity - only one /config message per call
@@ -1253,9 +1267,9 @@ void HA_MqttClient::loop()
         }
         break;
 
+        //* Send the /avail message to Home Assistant after a short delay
         case State::SendOnlineAvailMsg:
         {
-            // Send the /avail message to Home Assistant after a short delay - race issue with Home Assistant
             enum class AvailState
             {
                 Wait2Secs,
@@ -1263,6 +1277,7 @@ void HA_MqttClient::loop()
             };
             static StateMachineState<AvailState> availState(AvailState::Wait2Secs);
 
+            // Send the /avail message to Home Assistant after a short delay - race issue with Home Assistant
             if (state.IsFirstTime())
             {
                 availState.ChangeState(AvailState::Wait2Secs);  // reset inner state machine on new state change to this state
@@ -1270,6 +1285,7 @@ void HA_MqttClient::loop()
 
             switch ((AvailState)availState)
             {
+                // Delay before sending /avail message for 2secs
                 case AvailState::Wait2Secs:     // Delay before sending /avail message for 2secs
                 {
                     static Timer twoSecTimer;
@@ -1289,6 +1305,7 @@ void HA_MqttClient::loop()
                 }
                 break;
 
+                // Send the /avail message to Home Assistant
                 case AvailState::SendAvail:
                 {
                     // Tell Home Assistant that all entities are available
@@ -1311,8 +1328,11 @@ void HA_MqttClient::loop()
                 }
             }
         }
+        break;
 
-        case State::Connected:      // Main idle state from an MQTT client perspective - monitor for incoming messages and send outgoing messages
+        //* Main idle state from an MQTT client perspective - monitor for incoming messages and send outgoing messages
+        //  for any changed properties
+        case State::Connected:
         {
             // Check for lost connection to MQTT Broker and restart SM if lost
             if (!mqttClient.connected())
@@ -1351,3 +1371,4 @@ void HA_MqttClient::loop()
     }
 }
 
+HA_MqttClient haMqttClient;

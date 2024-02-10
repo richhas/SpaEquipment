@@ -760,4 +760,4 @@ extern class FlashStore<TempSensorsConfig, PS_TempSensorsConfigBase> tempSensors
 extern class BoilerControllerTask boilerControllerTask;
 extern class FlashStore<BoilerConfig, PS_BoilerConfigBase> boilerConfig;
 extern void SetAllBoilerParametersFromConfig();
-extern class HA_MqttClient      mqttClient;
+extern class HA_MqttClient      haMqttClient;
