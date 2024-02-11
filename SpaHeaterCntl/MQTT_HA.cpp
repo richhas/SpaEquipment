@@ -30,6 +30,17 @@ namespace TinyBus
             constexpr static int _maxHaDeviceNameLen = 32;
             char _baseHATopic[_maxBaseHATopicLen];
             char _haDeviceName[_maxHaDeviceNameLen];
+
+            bool IsFullyConfigured() const
+            {
+                return  (_brokerIP != 0) && 
+                        (_brokerPort != 0) && 
+                        (_clientId[0] != 0) && 
+                        (_username[0] != 0) && 
+                        (_password[0] != 0) && 
+                        (_baseHATopic[0] != 0) && 
+                        (_haDeviceName[0] != 0);
+            }
         };
         #pragma pack(pop)
 
@@ -424,7 +435,6 @@ namespace TinyBus
             HaEntityDesc(_defaultHysterisisName, HysterisisConfigJsonTemplate, HysterisisBaseTopicJsonTemplate, &hysterisisBaseTopic, &expandedMsgSizeOfHysterisisConfigJson)
         };
         int _entityDescCount = sizeof(_entityDescs) / sizeof(HaEntityDesc);
-
 
         //* Flash store for MQTT configuration
         FlashStore<HA_MqttConfig, PS_MQTTBrokerConfigBase> mqttConfig;
@@ -1223,7 +1233,10 @@ void HA_MqttClient::loop()
         {
             static IPAddress brokerIP;
 
-            logger.Printf(Logger::RecType::Info, "Connecting to MQTT Broker");
+            logger.Printf(Logger::RecType::Info, "Connecting to MQTT Broker: IP: '%s' Port: '%d'", 
+                IPAddress(mqttConfig.GetRecord()._brokerIP).toString().c_str(), 
+                mqttConfig.GetRecord()._brokerPort);
+
             brokerIP = mqttConfig.GetRecord()._brokerIP;
             mqttClient.stop();
             mqttClient.setId(mqttConfig.GetRecord()._clientId);
@@ -1432,5 +1445,131 @@ void HA_MqttClient::loop()
         }
     }
 }
+
+
+//* MQTT/HA related console command processors for configuration of the MQTT client to HA
+CmdLine::Status ExitConfigHAMqtt(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    ((ConsoleTask *)Context)->Pop();
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status ShowMqttConfig(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    // Show the current MQTT configuration from the configuration record
+    if (!mqttConfig.IsValid())
+    {
+        printf(CmdStream, "MQTT configuration is not valid\n");
+        return CmdLine::Status::Ok;
+    }
+
+    if (mqttConfig.GetRecord().IsFullyConfigured() == false)
+    {
+        printf(CmdStream, "*MQTT configuration is not fully configured\n");
+    }
+
+    printf(CmdStream, "MQTT Broker IP: %s; Port#: %d\n", 
+        IPAddress(mqttConfig.GetRecord()._brokerIP).toString().c_str(), 
+        mqttConfig.GetRecord()._brokerPort);
+    printf(CmdStream, "Client ID: '%s'; Username: '%s'; Password: '%s'\n", 
+        mqttConfig.GetRecord()._clientId, 
+        mqttConfig.GetRecord()._username, 
+        mqttConfig.GetRecord()._password);
+
+    printf(CmdStream, "Base HA Topic: '%s'; Device Name: '%s'\n\n", 
+        mqttConfig.GetRecord()._baseHATopic, 
+        mqttConfig.GetRecord()._haDeviceName);
+
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status EraseMqttConfig(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    // Erase the current MQTT configuration
+    mqttConfig.Erase();
+    mqttConfig.Begin();
+    $Assert(mqttConfig.IsValid() == false);
+
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status SetConfigVar(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    if (Argc < 2)
+    {
+        printf(CmdStream, "Usage: set <var> <value> or set ? for help\n");
+        return CmdLine::Status::UnexpectedParameterCount;
+    }
+
+    if (strcmp(Args[1], "?") == 0)
+    {
+        printf(CmdStream, "MQTT/HA Configuration Variables:\n");
+        printf(CmdStream, "   ip <ip> - Set the MQTT broker IP\n");
+        printf(CmdStream, "   port <port> - Set the MQTT broker port number\n");
+        printf(CmdStream, "   id <id>  - Set the MQTT client ID\n");
+        printf(CmdStream, "   user <username> - Set the MQTT username\n");
+        printf(CmdStream, "   password <password> - Set the MQTT password\n");
+        printf(CmdStream, "   topic <topic> - Set the base HA topic\n");
+        printf(CmdStream, "   name <device name> - Set the HA device name\n");
+        return CmdLine::Status::Ok;
+    }
+
+    if (Argc < 3)
+    {
+        return CmdLine::Status::UnexpectedParameterCount;
+    }
+
+    if (strcmp(Args[1], "ip") == 0)
+    {
+        mqttConfig.GetRecord()._brokerIP = IPAddress(Args[2]);
+        mqttConfig.Write();
+    }
+    else if (strcmp(Args[1], "port") == 0)
+    {
+        mqttConfig.GetRecord()._brokerPort = atoi(Args[2]);
+        mqttConfig.Write();
+    }
+    else if (strcmp(Args[1], "id") == 0)
+    {
+        strncpy(mqttConfig.GetRecord()._clientId, Args[2], sizeof(mqttConfig.GetRecord()._clientId));
+        mqttConfig.Write();
+    }
+    else if (strcmp(Args[1], "user") == 0)
+    {
+        strncpy(mqttConfig.GetRecord()._username, Args[2], sizeof(mqttConfig.GetRecord()._username));
+        mqttConfig.Write();
+    }
+    else if (strcmp(Args[1], "password") == 0)
+    {
+        strncpy(mqttConfig.GetRecord()._password, Args[2], sizeof(mqttConfig.GetRecord()._password));
+        mqttConfig.Write();
+    }
+    else if (strcmp(Args[1], "topic") == 0)
+    {
+        strncpy(mqttConfig.GetRecord()._baseHATopic, Args[2], sizeof(mqttConfig.GetRecord()._baseHATopic));
+        mqttConfig.Write();
+    }
+    else if (strcmp(Args[1], "name") == 0)
+    {
+        strncpy(mqttConfig.GetRecord()._haDeviceName, Args[2], sizeof(mqttConfig.GetRecord()._haDeviceName));
+        mqttConfig.Write();
+    }
+    else
+    {
+        printf(CmdStream, "Unknown MQTT/HA configuration variable: %s\n", Args[1]);
+        return CmdLine::Status::InvalidParameter;
+    }
+
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::ProcessorDesc haMqttCmdProcessors[] =
+    {
+        {SetConfigVar, "set", "Set a MQTT/HA configuration variables - set <var> <value> -or- set ? for help"},
+        {EraseMqttConfig, "erase", "Erase the current MQTT/HA configuration"},
+        {ShowMqttConfig, "show", "Show the current MQTT configuration"},
+        {ExitConfigHAMqtt, "exit", "Exit to parent menu"},
+};
+int const LengthOfHaMqttCmdProcessors = sizeof(haMqttCmdProcessors) / sizeof(haMqttCmdProcessors[0]);
 
 HA_MqttClient haMqttClient;

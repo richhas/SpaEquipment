@@ -384,6 +384,45 @@ private:
     bool _firstTime;
 };
 
+//** Simple fixed size Stack implementation 
+//
+template <typename T, int TSize>
+class Stack
+{
+private:
+    T       _stack[TSize];
+    int     _top;
+
+public:
+    inline Stack() : _top(0) {}
+
+    inline void Push(const T& Value)
+    {
+        if (_top >= TSize)
+        {
+            $FailFast();
+        }
+
+        _stack[_top++] = Value;
+    }
+
+    inline void Pop()
+    {
+        $Assert(_top > 0);
+        _top--;
+    }
+
+    inline T& Top()
+    {
+        $Assert(_top > 0);
+        return _stack[_top - 1];
+    }
+
+    inline bool IsEmpty() { return _top == 0; }
+    inline bool IsFull() { return _top == TSize; }
+    int Size() { return _top; }
+};
+
 
 
 

@@ -8,6 +8,7 @@
 #include <Arduino_LED_Matrix.h>
 #include <time.h>
 #include <vector>
+#include <stack>
 #include <Arduino_FreeRTOS.h>
 
 using namespace std;
@@ -82,7 +83,7 @@ constexpr float $FDiffToC(float F)
 
 //** All Task Types used
 
-//* Admin console Task that can be redirected to any Stream
+//* Admin console Task that can be redirected to any Stream; supports stacking of command processors
 class ConsoleTask : public ArduinoTask
 {
 public:
@@ -93,33 +94,27 @@ public:
     virtual void setup();
     virtual void loop();
 
+    void Push(CmdLine::ProcessorDesc& Descs, int NbrOfDescs, char const* ContextStr = "", void* Context = nullptr);
+    void Pop();
+
     void StartBoilerConfig();
     void EndBoilerConfig();
     void StartBoilerControl();
     void EndBoilerControl();
 
 private:
-    friend CmdLine::Status ShowBoilerConfigProcessor(Stream&, int, char const**, void*);
-    void ShowCurrentBoilerConfig(int PostLineFeedCount = 2);
-
-    friend CmdLine::Status ShowBoilerControlProcessor(Stream&, int, char const**, void*);
-    void ShowCurrentBoilerState();
-
-private:
     Stream&         _stream;
     CmdLine         _cmdLine;
 
-    enum class State
+    struct ProcessorDesc
     {
-        MainMenu,
-        EnterBoilerConfig,
-        BoilerConfig,
-        EnterBoilerControl,
-        BoilerControl,
-        EnterMainMenu,
+        CmdLine::ProcessorDesc* _descs;
+        int                     _nbrOfDescs;
+        char const*             _contextStr;
+        void*                   _context;
     };
 
-    State           _state;
+    Stack<ProcessorDesc, 4>     _cmdLineStack;  // maximum of 4 stacked command processors
 };
 
 //* Task to maintain the UNO WiFi LED display; presenting a text string
@@ -381,6 +376,8 @@ public:
 public:
     BoilerControllerTask();
     ~BoilerControllerTask();
+    static void BoilerControllerThreadEntry(void *pvParameters);
+
 
     bool IsBusy();      // Returns true if the controller is busy processing a command (Start/Stop/Reset)
 
@@ -411,8 +408,9 @@ public:
     void ClearOneWireBusStats();
     void GetOneWireBusStats(OneWireBusStats& Stats);
 
-
-    static void BoilerControllerThreadEntry(void *pvParameters);
+    // Console display helpers
+    static void ShowCurrentBoilerConfig(Stream&, int PostLineFeedCount = 2);
+    static void ShowCurrentBoilerState(Stream&);
 
 private:
     friend void setup();
@@ -761,3 +759,11 @@ extern class BoilerControllerTask boilerControllerTask;
 extern class FlashStore<BoilerConfig, PS_BoilerConfigBase> boilerConfig;
 extern void SetAllBoilerParametersFromConfig();
 extern class HA_MqttClient      haMqttClient;
+extern CmdLine::ProcessorDesc controlBoilerCmdProcessors[];
+extern int const LengthOfControlBoilerCmdProcessors;
+extern CmdLine::ProcessorDesc configBoilerCmdProcessors[];
+extern int const LengthOfConfigBoilerCmdProcessors;
+extern CmdLine::ProcessorDesc consoleTaskCmdProcessors[];
+extern int const LengthOfConsoleTaskCmdProcessors;
+extern CmdLine::ProcessorDesc haMqttCmdProcessors[];
+extern int const LengthOfHaMqttCmdProcessors;

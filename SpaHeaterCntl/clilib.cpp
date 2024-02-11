@@ -113,6 +113,12 @@ bool CmdLine::IsReady()
                     _cmdLineIx = 0;
                     _sol = true;
                     ProcessCommandLine();
+                    if (_lastStatus != CmdLine::Ok)
+                    {
+                        _stream->print("Error: ");
+                        _stream->print(CmdLine::StatusToText(_lastStatus));
+                        _stream->print("\n\r");
+                    }
                     return true;
                 }
 

@@ -20,8 +20,25 @@ public:
         InvalidCommandName = -3,
         InvalidStringLiteral = -4,
         UnexpectedParameterCount = -5,
-        CommandFailed = -6,
+        InvalidParameter = -6,
+        CommandFailed = -7,
     };
+    constexpr static char const* StatusToText(Status S)
+    {
+        switch (S)
+        {
+            case Ok: return "Ok";
+            case MissingCommand: return "MissingCommand";
+            case TooManyParameters: return "TooManyParameters";
+            case InvalidCommandName: return "InvalidCommandName";
+            case InvalidStringLiteral: return "InvalidStringLiteral";
+            case UnexpectedParameterCount: return "UnexpectedParameterCount";
+            case CommandFailed: return "CommandFailed";
+            case InvalidParameter: return "InvalidParameter";
+            default: return "Unknown";
+        }
+    }
+
     typedef CmdLine::Status (*Processor)(Stream& CmdStream, int Argc, char const** Args, void* Context);        // Command processor function type
 
     // Each possible command line command is defined by a ProcessorDesc instance table
