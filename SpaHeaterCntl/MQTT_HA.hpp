@@ -2,7 +2,7 @@
 // HA_MQTT class definitions
 
 #pragma once
-#include "SpaHeaterCntl.h"
+#include "SpaHeaterCntl.hpp"
 #include <ArduinoMqttClient.h>
 #include <functional>
 #include "MQTT_HA.hpp"

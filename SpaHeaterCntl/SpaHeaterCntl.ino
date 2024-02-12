@@ -1,6 +1,6 @@
 // SPA Heater Controller for Maxie HA system 2024 (c)TinyBus
 
-#include "SpaHeaterCntl.h"
+#include "SpaHeaterCntl.hpp"
 
 //* System Instance Record - In persistant storage
 #pragma pack(push, 1)

@@ -2,7 +2,7 @@
 // LedMatrixTask definitions
 
 #pragma once
-#include "SpaHeaterCntl.h"
+#include "SpaHeaterCntl.hpp"
 #include "LedMatrixTask.hpp"
 
 

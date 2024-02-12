@@ -1,7 +1,7 @@
 // SPA Heater Controller for Maxie HA system 2024 (c)TinyBus
 // Network related implementations
 
-#include "SpaHeaterCntl.h"
+#include "SpaHeaterCntl.hpp"
 #include "Network.hpp"
 
 NetworkTask     network;

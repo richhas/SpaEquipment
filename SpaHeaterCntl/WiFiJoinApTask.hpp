@@ -7,7 +7,7 @@
 #include <WiFi.h>
 #include <WiFiS3.h>
 
-#include "SpaHeaterCntl.h"
+#include "SpaHeaterCntl.hpp"
 #include "WiFiJoinApTask.hpp"
 
 

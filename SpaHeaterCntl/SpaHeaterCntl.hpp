@@ -13,8 +13,8 @@
 
 using namespace std;
 
-#include "Common.h"
-#include "clilib.h"
+#include "common.hpp"
+#include "clilib.hpp"
 #include "FlashStore.hpp"
 #include "BoilerControllerTask.hpp"
 #include "WiFiJoinApTask.hpp"

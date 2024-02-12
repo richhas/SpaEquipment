@@ -4,7 +4,7 @@
     Copyright TinyBus 2020
 */
 #include <Arduino.h>
-#include "common.h"
+#include "common.hpp"
 
 #include <cstdarg>
 #include <cstdio>

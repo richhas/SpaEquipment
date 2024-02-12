@@ -5,7 +5,7 @@
 */
 #pragma once
 
-#include "SpaHeaterCntl.h"
+#include "SpaHeaterCntl.hpp"
 
 /*
  * The BoilerControllerTask class is part of the Maxie HA system 2024 developed by TinyBus.

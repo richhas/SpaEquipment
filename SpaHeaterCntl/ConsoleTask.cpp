@@ -1,7 +1,7 @@
 // SPA Heater Controller for Maxie HA system 2024 (c)TinyBus
 // ConsoleTask implementation
 
-#include "SpaHeaterCntl.h"
+#include "SpaHeaterCntl.hpp"
 #include "ConsoleTask.hpp"
 
 

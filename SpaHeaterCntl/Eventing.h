@@ -6,7 +6,7 @@
 #pragma once
 
 #include <Arduino.h>
-#include "Common.h"
+#include "common.hpp"
 
 //* Event source type. Instances are declared as Event<T>.
 template <typename TEventArgs>

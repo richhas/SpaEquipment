@@ -2,8 +2,8 @@
 // ConsoleTask Definitions
 
 #pragma once
-#include "clilib.h"
-#include "SpaHeaterCntl.h"
+#include "clilib.hpp"
+#include "SpaHeaterCntl.hpp"
 #include "ConsoleTask.hpp"
 
 

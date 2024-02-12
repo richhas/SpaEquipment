@@ -2,7 +2,7 @@
 // System Logger definitions
 
 #pragma once
-#include "SpaHeaterCntl.h"
+#include "SpaHeaterCntl.hpp"
 #include "Logger.hpp"
 
 //* System Logger

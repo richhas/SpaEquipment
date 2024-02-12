@@ -5,7 +5,7 @@
 */
 #pragma once
 
-#include "Common.h"
+#include "common.hpp"
 #include <memory.h>
 #include <EEPROM.h>
 #include <Arduino_CRC32.h>

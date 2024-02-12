@@ -29,7 +29,7 @@
  * All rights reserved.
  */
 
-#include "SpaHeaterCntl.h"
+#include "SpaHeaterCntl.hpp"
 #include "BoilerControllerTask.hpp"
 
 //** Boiler related configuration records

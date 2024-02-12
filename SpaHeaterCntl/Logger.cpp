@@ -1,7 +1,7 @@
 // SPA Heater Controller for Maxie HA system 2024 (c)TinyBus
 // System Logger implementation
 
-#include "SpaHeaterCntl.h"
+#include "SpaHeaterCntl.hpp"
 
 
 Logger          logger(Serial);

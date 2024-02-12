@@ -1,7 +1,7 @@
 // SPA Heater Controller for Maxie HA system 2024 (c)TinyBus
 // LedMatrixTask implementation
 
-#include "SpaHeaterCntl.h"
+#include "SpaHeaterCntl.hpp"
 #include "LedMatrixTask.hpp"
 
  LedMatrixTask   matrixTask(Serial, 50);

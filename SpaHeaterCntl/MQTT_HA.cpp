@@ -1,7 +1,7 @@
 // SPA Heater Controller for Maxie HA system 2024 (c)TinyBus
 // HA_MQTT class implementation
 
-#include "SpaHeaterCntl.h"
+#include "SpaHeaterCntl.hpp"
 #include <ArduinoMqttClient.h>
 #include <functional>
 #include "MQTT_HA.hpp"

@@ -1,7 +1,7 @@
 // SPA Heater Controller for Maxie HA system 2024 (c)TinyBus
 // WiFiJoinApTask implementation
 
-#include "SpaHeaterCntl.h"
+#include "SpaHeaterCntl.hpp"
 #include <memory.h>
 #include <string.h>
 #include "WiFiJoinApTask.hpp"

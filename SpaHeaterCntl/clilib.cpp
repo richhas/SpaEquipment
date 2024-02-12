@@ -5,7 +5,7 @@
 */
 
 #include <string.h>
-#include "clilib.h"
+#include "clilib.hpp"
 
 CmdLine::CmdLine()
 {

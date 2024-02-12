@@ -2,7 +2,7 @@
 // Network related definitions
 
 #pragma once
-#include "SpaHeaterCntl.h"
+#include "SpaHeaterCntl.hpp"
 #include "Network.hpp"
 
 //** Network related definitions
