@@ -30,9 +30,19 @@
  */
 
 #include "SpaHeaterCntl.h"
+#include "BoilerControllerTask.hpp"
+
+//** Boiler related configuration records
+FlashStore<TempSensorsConfig, PS_TempSensorsConfigBase> tempSensorsConfig;
+    static_assert(PS_TempSensorsConfigBlkSize >= sizeof(FlashStore<TempSensorsConfig, PS_TempSensorsConfigBase>));
+FlashStore<BoilerConfig, PS_BoilerConfigBase> boilerConfig;
+    static_assert(PS_BoilerConfigBlkSize >= sizeof(FlashStore<BoilerConfig, PS_BoilerConfigBase>));
+
+BoilerControllerTask boilerControllerTask;
 
 
-// BoilerControllerTask freeRTOS task entry function
+
+//** BoilerControllerTask freeRTOS task entry function
 void BoilerControllerTask::BoilerControllerThreadEntry(void *pvParameters)
 {
     boilerControllerTask.setup();

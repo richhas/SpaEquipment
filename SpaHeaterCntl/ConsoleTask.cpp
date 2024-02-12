@@ -2,6 +2,10 @@
 // ConsoleTask implementation
 
 #include "SpaHeaterCntl.h"
+#include "ConsoleTask.hpp"
+
+
+ConsoleTask     consoleTask(Serial);
 
 
 ConsoleTask::ConsoleTask(Stream &StreamToUse)
@@ -13,15 +17,15 @@ ConsoleTask::~ConsoleTask()
 { 
 }
 
-void ConsoleTask::Push(CmdLine::ProcessorDesc &Descs, int NbrOfDescs, char const *ContextStr, void *Context)
+void ConsoleTask::Push(CmdLine::ProcessorDesc &Descs, int NbrOfDescs, char const *ContextStr)
 {
     // if we have at tos element, end the cmdLine
     if (!_cmdLineStack.IsEmpty())
     {
         _cmdLine.end();
     }
-    _cmdLineStack.Push(ProcessorDesc{&Descs, NbrOfDescs, ContextStr, Context});
-    _cmdLine.begin(_stream, &Descs, NbrOfDescs, ContextStr, Context);
+    _cmdLineStack.Push(ProcessorDesc{&Descs, NbrOfDescs, ContextStr, this});
+    _cmdLine.begin(_stream, &Descs, NbrOfDescs, ContextStr, this);
 }
 
 void ConsoleTask::Pop()
@@ -42,9 +46,13 @@ void ConsoleTask::Pop()
 }
 
 void ConsoleTask::setup()
-{
+{   
     logger.Printf(Logger::RecType::Info, "ConsoleTask is Active");
-    Push(consoleTaskCmdProcessors[0], LengthOfConsoleTaskCmdProcessors, "Main", this);
+}
+
+void ConsoleTask::begin(CmdLine::ProcessorDesc *Descs, int NbrOfDescs, char const *ContextStr)
+{
+    Push(*Descs, NbrOfDescs, ContextStr);
 }
 
 void ConsoleTask::loop() 

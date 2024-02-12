@@ -7,8 +7,6 @@
 
 #include <Arduino.h>
 #include <Arduino_FreeRTOS.h>
-#include <memory.h>
-#include <EEPROM.h>
 
 //** Hard Fault primitives 
 extern void FailFast(const char* FileName, int LineNumber);
@@ -231,101 +229,6 @@ public:
 private:
     uint32_t    _alarmTime;         // msecs
 };
-
-/** EEPROM config support */
-// The first bytes of the EEPROM are used to store the configuration for this device
-//
-#pragma pack(push, 1)
-template <typename TBlk, uint16_t TBaseOfRecord> 
-class FlashStore
-{
-private:
-    union
-    {
-        struct
-        {
-            TBlk        _record;
-            uint8_t     _onesComp[sizeof(TBlk)];           // 1's comp of the the above - correctness checks
-        };
-
-        uint8_t         _bytes[2 * sizeof(TBlk)];    
-    };
-
-private:
-    void Fill()
-    {
-        uint8_t*    next = &_bytes[0];
-        int         toDo = sizeof(*this);
-        int         index = TBaseOfRecord;
-
-        while (toDo > 0)
-        {
-            *next = EEPROM.read(index);
-            next++;
-            index++;
-            toDo--;
-        }
-    }
-
-    void Flush()
-    {
-        uint8_t*    next = &_bytes[0];
-        int         toDo = sizeof(*this);
-        int         index = TBaseOfRecord;
-
-        while (toDo > 0)
-        {
-            EEPROM.write(index, *next);
-            next++;
-            index++;
-            toDo--;
-        }
-    }
-
-public:
-    FlashStore()
-    {
-        memset(&_bytes[0], 0, sizeof(FlashStore::_bytes));
-    }
-
-    void Begin()
-    {
-        Fill();
-    }
-
-    TBlk& GetRecord() { return _record; }
-
-    bool IsValid()
-    {
-        for (byte ix = 0; ix < sizeof(FlashStore::_onesComp); ix++)
-        {
-            uint8_t t = ~(_bytes[ix]);
-            if (t != _onesComp[ix])
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    void Write()
-    {
-        for (byte ix = 0; ix < sizeof(FlashStore::_onesComp); ix++)
-        {
-            _onesComp[ix] = ~(_bytes[ix]);
-        }
-
-        Flush();
-    }
-
-    void Erase()
-    {
-        memset(&_bytes[0], 0, sizeof(FlashStore::_bytes));
-        Flush();
-    }
-};
-#pragma pack(pop) 
 
 
 //** Generalized Arduino processing task class

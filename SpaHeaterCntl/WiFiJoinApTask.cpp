@@ -4,8 +4,10 @@
 #include "SpaHeaterCntl.h"
 #include <memory.h>
 #include <string.h>
+#include "WiFiJoinApTask.hpp"
 
-// #define debugOut
+WiFiJoinApTask wifiJoinApTask(Serial, "SpaHeaterAP", "123456789");
+
 
 WiFiJoinApTask::WiFiJoinApTask(Stream& TraceOutput, const char* ApNetName, const char* ApNetPassword)
     :   _traceOutput(TraceOutput),

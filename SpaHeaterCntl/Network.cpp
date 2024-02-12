@@ -2,6 +2,10 @@
 // Network related implementations
 
 #include "SpaHeaterCntl.h"
+#include "Network.hpp"
+
+NetworkTask     network;
+
 
 //* Core Network Component implementation
 void NetworkTask::Begin(const char* SSID, const char* NetPassword)

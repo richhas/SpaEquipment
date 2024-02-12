@@ -4,6 +4,7 @@
 #include "SpaHeaterCntl.h"
 #include <ArduinoMqttClient.h>
 #include <functional>
+#include "MQTT_HA.hpp"
 
 namespace TinyBus
 {

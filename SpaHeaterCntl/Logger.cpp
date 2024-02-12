@@ -3,6 +3,10 @@
 
 #include "SpaHeaterCntl.h"
 
+
+Logger          logger(Serial);
+
+
 Logger::Logger(Stream &ToStream)
     : _out(ToStream),
       _logSeq(0),

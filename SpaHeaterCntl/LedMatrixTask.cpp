@@ -2,6 +2,9 @@
 // LedMatrixTask implementation
 
 #include "SpaHeaterCntl.h"
+#include "LedMatrixTask.hpp"
+
+ LedMatrixTask   matrixTask(Serial, 50);
 
 LedMatrixTask::LedMatrixTask(Stream& Output, uint8_t ScrollTimeInMS)
     :   _output(Output),

@@ -2,21 +2,17 @@
 
 #include "SpaHeaterCntl.h"
 
+//* System Instance Record - In persistant storage
+#pragma pack(push, 1)
+struct BootRecord
+{
+    uint32_t BootCount;
+};
+#pragma pack(pop)
 
-
-
-ConsoleTask     consoleTask(Serial);
-LedMatrixTask   matrixTask(Serial, 50);
-WiFiJoinApTask  wifiJoinApTask(Serial, "SpaHeaterAP", "123456789");
-Logger          logger(Serial);
 FlashStore<BootRecord, PS_BootRecordBase> bootRecord;
     static_assert(PS_BootRecordBlkSize >= sizeof(FlashStore<BootRecord, PS_BootRecordBase>));
-FlashStore<TempSensorsConfig, PS_TempSensorsConfigBase> tempSensorsConfig;
-    static_assert(PS_TempSensorsConfigBlkSize >= sizeof(FlashStore<TempSensorsConfig, PS_TempSensorsConfigBase>));
-FlashStore<BoilerConfig, PS_BoilerConfigBase> boilerConfig;
-    static_assert(PS_BoilerConfigBlkSize >= sizeof(FlashStore<BoilerConfig, PS_BoilerConfigBase>));
 
-NetworkTask     network;
 shared_ptr<TelnetServer> telnetServer;
 
 
@@ -31,19 +27,25 @@ shared_ptr<TelnetServer> telnetServer;
 //    TODO:
 //      - Change log prints to use correct log levels
 //      - Add a log level into system config
-//      - Add MQTT related config console commands
+//      - Config:
+//          - Make records CRC-checked
+//          - Use end of 8K for circular log buffer
+//      - MQTT - make independent of WiFi 
+//      - NetworkTask - make independent of WiFi. Support ethernet and WiFi
+//          - IsConnected() - returns true if connected to either WiFi or Ethernet
+//      - Make dual targeted - UNO R4 Minima (Ethernet) and UNO R4 Maxie (WiFi)
+//      - Telnet Server - make independent of WiFi
+//      - Make libraries??
 //
 
 void StartTelnet()
 {
-    logger.Printf(Logger::RecType::Info, "TELNET (Admin console) starting");
+    logger.Printf(Logger::RecType::Progress, "TELNET (Admin console) starting");
     telnetServer = make_shared<TelnetServer>();
     $Assert(telnetServer != nullptr);
     telnetServer->setup();
     telnetServer->Begin(23);
 }
-
-shared_ptr<TcpClient> testTcpClient;
 
 
 //** Main admin console commands
@@ -65,21 +67,6 @@ CmdLine::Status SetLedDisplayProcessor(Stream &CmdStream, int Argc, char const *
 
     matrixTask.PutString((char *)(Args[1]));
 
-    return CmdLine::Status::Ok;
-}
-
-CmdLine::Status DumpProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
-{
-    if (Argc > 2)
-    {
-        return CmdLine::Status::TooManyParameters;
-    }
-
-    if (strcmp(Args[1], "wificonfig") == 0)
-    {
-        wifiJoinApTask.DumpConfig(CmdStream);
-        CmdStream.println();
-    }
     return CmdLine::Status::Ok;
 }
 
@@ -191,80 +178,41 @@ CmdLine::Status ShowTempSensorsProcessor(Stream &CmdStream, int Argc, char const
 
 CmdLine::Status ConfigBoilerProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
 {
-    ((ConsoleTask *)Context)->Push(configBoilerCmdProcessors[0], LengthOfConfigBoilerCmdProcessors, "BoilerConfig", Context);
-
-    //    ((ConsoleTask *)Context)->StartBoilerConfig();
+    ((ConsoleTask *)Context)->Push(configBoilerCmdProcessors[0], LengthOfConfigBoilerCmdProcessors, "BoilerConfig");
     return CmdLine::Status::Ok;
 }
 
 CmdLine::Status BoilerProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
 {
-    ((ConsoleTask *)Context)->Push(controlBoilerCmdProcessors[0], LengthOfControlBoilerCmdProcessors, "BoilerControl", Context);
-
-    //    ((ConsoleTask *)Context)->StartBoilerControl();
-    return CmdLine::Status::Ok;
-}
-
-bool TcpIsRunning = false;
-
-CmdLine::Status StartTcpProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
-{
-    if (TcpIsRunning)
-    {
-        printf(CmdStream, "***TCP already running***\n");
-        return CmdLine::Status::Ok;
-    }
-
-    TcpIsRunning = true;
-    printf(CmdStream, "***Start TCP***\n");
-    testTcpClient = make_shared<TcpClient>(IPAddress("192.168.3.48"), 1883); // test connect to MQTT in test HA
-    testTcpClient->Begin();
-    return CmdLine::Status::Ok;
-}
-
-CmdLine::Status StopTcpProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
-{
-    if (!TcpIsRunning)
-    {
-        printf(CmdStream, "***TCP not running***\n");
-        return CmdLine::Status::Ok;
-    }
-    TcpIsRunning = false;
-    printf(CmdStream, "***Stop TCP***\n");
-    testTcpClient->End();
-    testTcpClient.reset();
+    ((ConsoleTask *)Context)->Push(controlBoilerCmdProcessors[0], LengthOfControlBoilerCmdProcessors, "BoilerControl");
     return CmdLine::Status::Ok;
 }
 
 CmdLine::Status ConfigHaMQTTProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
 {
-    ((ConsoleTask *)Context)->Push(haMqttCmdProcessors[0], LengthOfHaMqttCmdProcessors, "ConfigMQTT", Context);
+    ((ConsoleTask *)Context)->Push(haMqttCmdProcessors[0], LengthOfHaMqttCmdProcessors, "ConfigMQTT");
     return CmdLine::Status::Ok;
 }
 
 CmdLine::ProcessorDesc consoleTaskCmdProcessors[] =
-    {
-        {SetRTCDateTime, "setTime", "Set the RTC date and time. Format: 'YYYY-MM-DD HH:MM:SS'"},
-        {ShowRTCDateTime, "showTime", "Show the current RTC date and time."},
-        {ClearEEPROMProcessor, "clearEPROM", "Clear all of the EEPROM"},
-        {SetLedDisplayProcessor, "ledDisplay", "Put tring to Led Matrix"},
-        {DumpProcessor, "dump", "Dump internal state"},
-        {SetWiFiConfigProcessor, "setWiFi", "Set the WiFi Config. Format: <SSID> <Net Password> <Admin Password>"},
-        {DisconnectWiFiProcessor, "stopWiFi", "Disconnect WiFi"},
-        {ShowTelnetInfoProcessor, "showTelnet", "Show telnet info"},
-        {RebootProcessor, "reboot", "Reboot the R4"},
-        {StartTcpProcessor, "startTCP", "Start TCP Client Test"},
-        {StopTcpProcessor, "stopTCP", "Stop TCP Client Test"},
-        {ShowTempSensorsProcessor, "showSensors", "Show the list of attached temperature sensors"},
-        {ConfigBoilerProcessor, "configBoiler", "Start the config of the Boiler"},
-        {BoilerProcessor, "boiler", "Start the Boiler console"},
-        {ConfigHaMQTTProcessor, "configMQTT", "MQTT/HA related config menu"},
+{
+    {SetRTCDateTime, "setTime", "Set the RTC date and time. Format: 'YYYY-MM-DD HH:MM:SS'"},
+    {ShowRTCDateTime, "showTime", "Show the current RTC date and time."},
+    {ClearEEPROMProcessor, "clearEPROM", "Clear all of the EEPROM"},
+    {SetLedDisplayProcessor, "ledDisplay", "Put tring to Led Matrix"},
+    {SetWiFiConfigProcessor, "setWiFi", "Set the WiFi Config. Format: <SSID> <Net Password> <Admin Password>"},
+    {DisconnectWiFiProcessor, "stopWiFi", "Disconnect WiFi"},
+    {ShowTelnetInfoProcessor, "showTelnet", "Show telnet info"},
+    {RebootProcessor, "reboot", "Reboot the R4"},
+    {ShowTempSensorsProcessor, "showSensors", "Show the list of attached temperature sensors"},
+    {ConfigBoilerProcessor, "configBoiler", "Start the config of the Boiler"},
+    {BoilerProcessor, "boiler", "Start the Boiler console"},
+    {ConfigHaMQTTProcessor, "configMQTT", "MQTT/HA related config menu"},
 };
 int const LengthOfConsoleTaskCmdProcessors = sizeof(consoleTaskCmdProcessors) / sizeof(consoleTaskCmdProcessors[0]);
 
 
 //******************************************************************************************
-BoilerControllerTask boilerControllerTask;
 TaskHandle_t mainThread;
 TaskHandle_t backgroundThread;
 
@@ -280,6 +228,7 @@ void EnableRtcAfterPOR()
     RTC.setTimeIfNotRunning(now);
 }
 
+//** POR Entry point
 void setup()
 {
     EnableRtcAfterPOR();        // must be done right after POR to minimize loss of time
@@ -328,6 +277,7 @@ void MainThreadEntry(void *pvParameters)
 
 void FinishStart()
 {
+    // Get out stateless boot time from the config record and increment it; given to the logger
     matrixTask.PutString("S02");
     bootRecord.Begin();
     if (!bootRecord.IsValid())
@@ -351,6 +301,7 @@ void FinishStart()
     logger.Begin(bootRecord.GetRecord().BootCount);
     // logger.SetFilter(Logger::RecType::Progress);         // TODO: Walk through and set the RecType for things that are progress info to be Progress
 
+    //** Logger used for all output from this point on
     matrixTask.PutString("S04");
     tempSensorsConfig.Begin();
 
@@ -378,12 +329,13 @@ void FinishStart()
 
     if (status != pdPASS)
     {
-        Serial.println("Failed to create 'background' thread");
+        logger.Printf(Logger::RecType::Critical, "Failed to create 'background' thread");
         $FailFast();
     }
 
     matrixTask.PutString("S07");
     consoleTask.setup();
+    consoleTask.begin(consoleTaskCmdProcessors, LengthOfConsoleTaskCmdProcessors, "Main");
     matrixTask.PutString("S08");
 
     matrixTask.PutString("S09");
@@ -395,7 +347,7 @@ void FinishStart()
     matrixTask.PutString("S12");
 }
 
-void SetAllBoilerParametersFromConfig()
+void SetAllBoilerParametersFromConfig()         // TODO: Move to BoilerControllerTask
 {
     BoilerControllerTask::TargetTemps temps;
     temps._setPoint = boilerConfig.GetRecord()._setPoint;
@@ -411,57 +363,15 @@ void SetAllBoilerParametersFromConfig()
     boilerControllerTask.SetMode(boilerConfig.GetRecord()._mode);
 }
 
-void MonitorBoiler()
-{
-    static uint32_t lastSeq = 0;
-    static Timer timer(1000);
-    static BoilerControllerTask::TempertureState state;
 
-    if (timer.IsAlarmed())
-    {
-        auto const seq = boilerControllerTask.GetHeaterStateSequence();
-        if (seq != lastSeq)
-        {
-            if (seq != 0)
-            {
-                BoilerControllerTask::TempertureState newState;
-                boilerControllerTask.GetTempertureState(newState);
-
-                if (newState._boilerInTemp != state._boilerInTemp)
-                    printf(Serial, "Main: Changed: Boiler In Temp: %f\n", newState._boilerInTemp);
-                if (newState._boilerOutTemp != state._boilerOutTemp)
-                    printf(Serial, "Main: Changed: Boiler Out Temp: %f\n", newState._boilerOutTemp);
-                if (newState._ambiantTemp != state._ambiantTemp)
-                    printf(Serial, "Main: Changed: Ambiant Temp: %f\n", newState._ambiantTemp);
-               if (newState._setPoint != state._setPoint)
-                    printf(Serial, "Main: Changed: Set Point: %f\n", newState._setPoint);          
-                if (newState._hysteresis != state._hysteresis)
-                    printf(Serial, "Main: Changed: Hysteresis: %f\n", newState._hysteresis);
-                if (newState._heaterOn != state._heaterOn)
-                    printf(Serial, "Main: Changed: Heater On: %s\n", newState._heaterOn ? "true" : "false");
-
-                state = newState;
-            }
-            else
-            {
-                boilerControllerTask.GetTempertureState(state);
-            }
-            lastSeq = seq;
-        }
-
-        timer.SetAlarm(1000);
-    }   
-
-}
-
-bool doMQTT = false;
-
+//** foreground thread loop
 void loop() 
 {
     consoleTask.loop();
     matrixTask.loop();
     wifiJoinApTask.loop();
 
+    //* Auto start the Boiler State Machine when we have a valid config for it
     static bool firstHeaterStateMachineStarted = false;
     if (!firstHeaterStateMachineStarted)
     {
@@ -471,7 +381,7 @@ void loop()
         if (boilerConfig.IsValid() && boilerConfig.GetRecord().IsConfigured() &&
             tempSensorsConfig.IsValid() && tempSensorsConfig.GetRecord().IsConfigured())
         {
-            logger.Printf(Logger::RecType::Info, "Main: Autostarting Boiler State Machine");
+            logger.Printf(Logger::RecType::Progress, "Main: Autostarting Boiler State Machine");
             firstHeaterStateMachineStarted = true;
 
             // Set all needed to prime the boiler state machine
@@ -480,7 +390,7 @@ void loop()
         }
     }
 
-    // Network dependent Tasks will get started and given time only after we kow we have a valid
+    // Network dependent Tasks will get started and given time only after we know we have a valid
     // wifi config
     if (!wifiJoinApTask.IsCompleted())
         return;
@@ -497,6 +407,8 @@ void loop()
         const char* ssid;
         const char* password;
 
+        // TODO: all wifi stuff must be hidden behind a NetworkTask interface - we may not be using WiFi
+        //       but instead Ethernet; the NetworkTask will handle the details
         wifiJoinApTask.GetNetworkConfig(ssid, password);
         network.Begin(ssid, password);
 
@@ -504,6 +416,5 @@ void loop()
     }
 
     network.loop();     // give network a chance to do its thing
-    // MonitorBoiler();
     haMqttClient.loop();
 }

@@ -1,0 +1,46 @@
+// SPA Heater Controller for Maxie HA system 2024 (c)TinyBus
+// ConsoleTask Definitions
+
+#pragma once
+#include "clilib.h"
+#include "SpaHeaterCntl.h"
+#include "ConsoleTask.hpp"
+
+
+//* Admin console Task that can be redirected to any Stream; supports stacking of command processors
+class ConsoleTask : public ArduinoTask
+{
+public:
+    ConsoleTask() = delete;
+    ConsoleTask(Stream &StreamToUse);
+    ~ConsoleTask();
+
+    virtual void setup();
+    void begin(CmdLine::ProcessorDesc *Descs, int NbrOfDescs, char const *ContextStr = "");
+    virtual void loop();
+
+    void Push(CmdLine::ProcessorDesc &Descs, int NbrOfDescs, char const *ContextStr = "");
+    void Pop();
+
+    void StartBoilerConfig();
+    void EndBoilerConfig();
+    void StartBoilerControl();
+    void EndBoilerControl();
+
+private:
+    Stream &_stream;
+    CmdLine _cmdLine;
+
+    struct ProcessorDesc
+    {
+        CmdLine::ProcessorDesc *_descs;
+        int _nbrOfDescs;
+        char const *_contextStr;
+        void *_context;
+    };
+
+    Stack<ProcessorDesc, 4> _cmdLineStack; // maximum of 4 stacked command processors
+};
+
+//** Cross module references
+extern class ConsoleTask consoleTask;
