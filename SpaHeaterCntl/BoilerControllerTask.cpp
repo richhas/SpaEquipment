@@ -746,6 +746,22 @@ void BoilerControllerTask::ClearOneWireBusStats()
     }
 }
 
+void BoilerControllerTask::SetAllBoilerParametersFromConfig()
+{
+    BoilerControllerTask::TargetTemps temps;
+    temps._setPoint = boilerConfig.GetRecord()._setPoint;
+    temps._hysteresis = boilerConfig.GetRecord()._hysteresis;
+
+    BoilerControllerTask::TempSensorIds sensorIds;
+    sensorIds._ambiantTempSensorId = tempSensorsConfig.GetRecord()._ambiantTempSensorId;
+    sensorIds._boilerInTempSensorId = tempSensorsConfig.GetRecord()._boilerInTempSensorId;
+    sensorIds._boilerOutTempSensorId = tempSensorsConfig.GetRecord()._boilerOutTempSensorId;
+
+    SetTargetTemps(temps);
+    SetTempSensorIds(sensorIds);
+    SetMode(boilerConfig.GetRecord()._mode);
+}
+
 // BoilerMode set/get
 BoilerControllerTask::BoilerMode BoilerControllerTask::GetMode()
 {
@@ -1169,7 +1185,7 @@ CmdLine::Status SetBoilerParamsControlProcessor(Stream &CmdStream, int Argc, cha
         return CmdLine::Status::CommandFailed;
     }
 
-    SetAllBoilerParametersFromConfig(); 
+    boilerControllerTask.SetAllBoilerParametersFromConfig(); 
 
     return CmdLine::Status::Ok;
 }

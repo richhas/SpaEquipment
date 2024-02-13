@@ -2,27 +2,10 @@
 
 #include "SpaHeaterCntl.hpp"
 
-//* System Instance Record - In persistant storage
-#pragma pack(push, 1)
-struct BootRecord
-{
-    uint32_t BootCount;
-};
-#pragma pack(pop)
-
-FlashStore<BootRecord, PS_BootRecordBase> bootRecord;
-    static_assert(PS_BootRecordBlkSize >= sizeof(FlashStore<BootRecord, PS_BootRecordBase>));
-
-shared_ptr<TelnetServer> telnetServer;
-
-
 // Tasks to add:
 //    Not WiFi dependent:
-//      Thermo
-//      Boiler
-//      DiagLog
-//
-//    WiFi dependent:
+//      DiagLog store and fwd
+//      NTP
 //
 //    TODO:
 //      - Change log prints to use correct log levels
@@ -30,22 +13,11 @@ shared_ptr<TelnetServer> telnetServer;
 //      - Config:
 //          - Make records CRC-checked
 //          - Use end of 8K for circular log buffer
-//      - MQTT - make independent of WiFi 
 //      - NetworkTask - make independent of WiFi. Support ethernet and WiFi
-//          - IsConnected() - returns true if connected to either WiFi or Ethernet
 //      - Make dual targeted - UNO R4 Minima (Ethernet) and UNO R4 Maxie (WiFi)
-//      - Telnet Server - make independent of WiFi
 //      - Make libraries??
 //
 
-void StartTelnet()
-{
-    logger.Printf(Logger::RecType::Progress, "TELNET (Admin console) starting");
-    telnetServer = make_shared<TelnetServer>();
-    $Assert(telnetServer != nullptr);
-    telnetServer->setup();
-    telnetServer->Begin(23);
-}
 
 
 //** Main admin console commands
@@ -144,12 +116,6 @@ CmdLine::Status DisconnectWiFiProcessor(Stream &CmdStream, int Argc, char const 
     return CmdLine::Status::Ok;
 }
 
-CmdLine::Status ShowTelnetInfoProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
-{
-    printf(CmdStream, "There are %u clients\n", telnetServer->GetNumberOfClients());
-    return CmdLine::Status::Ok;
-}
-
 CmdLine::Status RebootProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
 {
     printf(CmdStream, "***rebooting***\n");
@@ -202,7 +168,6 @@ CmdLine::ProcessorDesc consoleTaskCmdProcessors[] =
     {SetLedDisplayProcessor, "ledDisplay", "Put tring to Led Matrix"},
     {SetWiFiConfigProcessor, "setWiFi", "Set the WiFi Config. Format: <SSID> <Net Password> <Admin Password>"},
     {DisconnectWiFiProcessor, "stopWiFi", "Disconnect WiFi"},
-    {ShowTelnetInfoProcessor, "showTelnet", "Show telnet info"},
     {RebootProcessor, "reboot", "Reboot the R4"},
     {ShowTempSensorsProcessor, "showSensors", "Show the list of attached temperature sensors"},
     {ConfigBoilerProcessor, "configBoiler", "Start the config of the Boiler"},
@@ -211,10 +176,114 @@ CmdLine::ProcessorDesc consoleTaskCmdProcessors[] =
 };
 int const LengthOfConsoleTaskCmdProcessors = sizeof(consoleTaskCmdProcessors) / sizeof(consoleTaskCmdProcessors[0]);
 
+//* Telnet Admin Console Task - hosts a TelnetServer and a ConsoleTask
+class TelnetConsole final : public ArduinoTask
+{
+private:
+    ConsoleTask _console;
+    shared_ptr<Server> _server;
+    shared_ptr<Client> _client;
+
+public:
+    TelnetConsole();
+    ~TelnetConsole();
+    virtual void setup();
+    virtual void loop();
+};
+
+//* Telnet Admin Console Task implementation
+TelnetConsole::TelnetConsole()
+    : _server(nullptr),
+      _client(nullptr)
+{
+}
+
+TelnetConsole::~TelnetConsole()
+{
+}
+
+void TelnetConsole::setup()
+{
+    logger.Printf(Logger::RecType::Progress, "TelnetConsole: Starting - listening on port 23...");
+    _server = move(NetworkTask::CreateServer(23));
+    $Assert(_server.get() != nullptr);
+    _server->begin();
+}
+
+void TelnetConsole::loop()
+{
+    enum class State
+    {
+        StartServer,
+        Connected,
+    };
+    static StateMachineState<State> state(State::StartServer);
+
+    switch ((State)state)
+    {
+    case State::StartServer:
+    {
+        if (network.IsAvailable())
+        {
+            _client = move(NetworkTask::available(_server));
+            if (_client.get() != nullptr)
+            {
+                state.ChangeState(State::Connected);
+                return;
+            }
+        }
+    }
+    break;
+
+    case State::Connected:
+    {
+        if (state.IsFirstTime())
+        {
+            logger.Printf(Logger::RecType::Info, "TelnetConsole: Client connected");
+            _console.SetStream(*_client);
+            _console.setup();
+            _console.begin(consoleTaskCmdProcessors, LengthOfConsoleTaskCmdProcessors, "Main");
+        }
+
+        if (_client->connected())
+        {
+            _console.loop();
+        }
+        else
+        {
+            logger.Printf(Logger::RecType::Info, "TelnetConsole: Client disconnected");
+            _client->stop();
+            _client = nullptr;
+            state.ChangeState(State::StartServer);
+        }
+    }
+    break;
+
+    default:
+        $FailFast();
+    }
+}
+
+
+//* System Instance (config) Record - In persistant storage
+#pragma pack(push, 1)
+struct BootRecord
+{
+    uint32_t BootCount;    // Number of times the system has been booted 
+};
+#pragma pack(pop)
+
+
+
 
 //******************************************************************************************
-TaskHandle_t mainThread;
-TaskHandle_t backgroundThread;
+//** Main logic for entire system
+//******************************************************************************************
+TaskHandle_t    mainThread;
+TaskHandle_t    backgroundThread;
+TelnetConsole   telnetConsole;
+FlashStore<BootRecord, PS_BootRecordBase> bootRecord;
+    static_assert(PS_BootRecordBlkSize >= sizeof(FlashStore<BootRecord, PS_BootRecordBase>));
 
 void EnableRtcAfterPOR()
 {
@@ -339,28 +408,14 @@ void FinishStart()
     matrixTask.PutString("S08");
 
     matrixTask.PutString("S09");
-    wifiJoinApTask.setup();
-    matrixTask.PutString("S10");
     network.setup();
+    matrixTask.PutString("S10");
+    network.Begin();
     matrixTask.PutString("S11");
     haMqttClient.setup();
     matrixTask.PutString("S12");
-}
-
-void SetAllBoilerParametersFromConfig()         // TODO: Move to BoilerControllerTask
-{
-    BoilerControllerTask::TargetTemps temps;
-    temps._setPoint = boilerConfig.GetRecord()._setPoint;
-    temps._hysteresis = boilerConfig.GetRecord()._hysteresis;
-
-    BoilerControllerTask::TempSensorIds sensorIds;
-    sensorIds._ambiantTempSensorId = tempSensorsConfig.GetRecord()._ambiantTempSensorId;
-    sensorIds._boilerInTempSensorId = tempSensorsConfig.GetRecord()._boilerInTempSensorId;
-    sensorIds._boilerOutTempSensorId = tempSensorsConfig.GetRecord()._boilerOutTempSensorId;
-
-    boilerControllerTask.SetTargetTemps(temps);
-    boilerControllerTask.SetTempSensorIds(sensorIds);
-    boilerControllerTask.SetMode(boilerConfig.GetRecord()._mode);
+    telnetConsole.setup();
+    matrixTask.PutString("S13");
 }
 
 
@@ -368,8 +423,7 @@ void SetAllBoilerParametersFromConfig()         // TODO: Move to BoilerControlle
 void loop() 
 {
     consoleTask.loop();
-    matrixTask.loop();
-    wifiJoinApTask.loop();
+    telnetConsole.loop();
 
     //* Auto start the Boiler State Machine when we have a valid config for it
     static bool firstHeaterStateMachineStarted = false;
@@ -385,34 +439,9 @@ void loop()
             firstHeaterStateMachineStarted = true;
 
             // Set all needed to prime the boiler state machine
-            SetAllBoilerParametersFromConfig();
+            boilerControllerTask.SetAllBoilerParametersFromConfig();
             boilerControllerTask.Start();
         }
-    }
-
-    // Network dependent Tasks will get started and given time only after we know we have a valid
-    // wifi config
-    if (!wifiJoinApTask.IsCompleted())
-        return;
-    $Assert(wifiJoinApTask.IsConfigured()); // should be true by now
-
-    //** Only Network dependent Tasks will get started and given time only after we kow we have a valid wifi config
-    static bool firstTime = true;
-
-    if (firstTime)
-    {
-        // First time we've had the wifi config completed - let wifi dependent Tasks set up
-        firstTime = false;
-
-        const char* ssid;
-        const char* password;
-
-        // TODO: all wifi stuff must be hidden behind a NetworkTask interface - we may not be using WiFi
-        //       but instead Ethernet; the NetworkTask will handle the details
-        wifiJoinApTask.GetNetworkConfig(ssid, password);
-        network.Begin(ssid, password);
-
-        StartTelnet();
     }
 
     network.loop();     // give network a chance to do its thing

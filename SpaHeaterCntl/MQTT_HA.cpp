@@ -439,24 +439,152 @@ namespace TinyBus
 
         //* Flash store for MQTT configuration
         FlashStore<HA_MqttConfig, PS_MQTTBrokerConfigBase> mqttConfig;
-        static_assert(PS_MQTTBrokerConfigBlkSize >= sizeof(FlashStore<HA_MqttConfig, PS_MQTTBrokerConfigBase>));
+            static_assert(PS_MQTTBrokerConfigBlkSize >= sizeof(FlashStore<HA_MqttConfig, PS_MQTTBrokerConfigBase>));
     } // namespace HA_Mqtt
 } // namespace TinyBus
 
-
 using namespace TinyBus::HA_Mqtt;
+
+
+//** MQTT/HA related console command processors for configuration of the MQTT client to HA
+CmdLine::Status ExitConfigHAMqtt(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    ((ConsoleTask *)Context)->Pop();
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status ShowMqttConfig(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    // Show the current MQTT configuration from the configuration record
+    if (!mqttConfig.IsValid())
+    {
+        printf(CmdStream, "MQTT configuration is not valid\n");
+        return CmdLine::Status::Ok;
+    }
+
+    if (mqttConfig.GetRecord().IsFullyConfigured() == false)
+    {
+        printf(CmdStream, "*MQTT configuration is not fully configured\n");
+    }
+
+    printf(CmdStream, "MQTT Broker IP: %s; Port#: %d\n",
+           IPAddress(mqttConfig.GetRecord()._brokerIP).toString().c_str(),
+           mqttConfig.GetRecord()._brokerPort);
+    printf(CmdStream, "Client ID: '%s'; Username: '%s'; Password: '%s'\n",
+           mqttConfig.GetRecord()._clientId,
+           mqttConfig.GetRecord()._username,
+           mqttConfig.GetRecord()._password);
+
+    printf(CmdStream, "Base HA Topic: '%s'; Device Name: '%s'\n\n",
+           mqttConfig.GetRecord()._baseHATopic,
+           mqttConfig.GetRecord()._haDeviceName);
+
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status EraseMqttConfig(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    // Erase the current MQTT configuration
+    mqttConfig.Erase();
+    mqttConfig.Begin();
+    $Assert(mqttConfig.IsValid() == false);
+
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status SetConfigVar(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    if (Argc < 2)
+    {
+        printf(CmdStream, "Usage: set <var> <value> or set ? for help\n");
+        return CmdLine::Status::UnexpectedParameterCount;
+    }
+
+    if (strcmp(Args[1], "?") == 0)
+    {
+        printf(CmdStream, "MQTT/HA Configuration Variables:\n");
+        printf(CmdStream, "   ip <ip> - Set the MQTT broker IP\n");
+        printf(CmdStream, "   port <port> - Set the MQTT broker port number\n");
+        printf(CmdStream, "   id <id>  - Set the MQTT client ID\n");
+        printf(CmdStream, "   user <username> - Set the MQTT username\n");
+        printf(CmdStream, "   password <password> - Set the MQTT password\n");
+        printf(CmdStream, "   topic <topic> - Set the base HA topic\n");
+        printf(CmdStream, "   name <device name> - Set the HA device name\n");
+        return CmdLine::Status::Ok;
+    }
+
+    if (Argc < 3)
+    {
+        return CmdLine::Status::UnexpectedParameterCount;
+    }
+
+    if (strcmp(Args[1], "ip") == 0)
+    {
+        mqttConfig.GetRecord()._brokerIP = IPAddress(Args[2]);
+        mqttConfig.Write();
+    }
+    else if (strcmp(Args[1], "port") == 0)
+    {
+        mqttConfig.GetRecord()._brokerPort = atoi(Args[2]);
+        mqttConfig.Write();
+    }
+    else if (strcmp(Args[1], "id") == 0)
+    {
+        strncpy(mqttConfig.GetRecord()._clientId, Args[2], sizeof(mqttConfig.GetRecord()._clientId));
+        mqttConfig.Write();
+    }
+    else if (strcmp(Args[1], "user") == 0)
+    {
+        strncpy(mqttConfig.GetRecord()._username, Args[2], sizeof(mqttConfig.GetRecord()._username));
+        mqttConfig.Write();
+    }
+    else if (strcmp(Args[1], "password") == 0)
+    {
+        strncpy(mqttConfig.GetRecord()._password, Args[2], sizeof(mqttConfig.GetRecord()._password));
+        mqttConfig.Write();
+    }
+    else if (strcmp(Args[1], "topic") == 0)
+    {
+        strncpy(mqttConfig.GetRecord()._baseHATopic, Args[2], sizeof(mqttConfig.GetRecord()._baseHATopic));
+        mqttConfig.Write();
+    }
+    else if (strcmp(Args[1], "name") == 0)
+    {
+        strncpy(mqttConfig.GetRecord()._haDeviceName, Args[2], sizeof(mqttConfig.GetRecord()._haDeviceName));
+        mqttConfig.Write();
+    }
+    else
+    {
+        printf(CmdStream, "Unknown MQTT/HA configuration variable: %s\n", Args[1]);
+        return CmdLine::Status::InvalidParameter;
+    }
+
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::ProcessorDesc haMqttCmdProcessors[] =
+    {
+        {SetConfigVar, "set", "Set a MQTT/HA configuration variables - set <var> <value> -or- set ? for help"},
+        {EraseMqttConfig, "erase", "Erase the current MQTT/HA configuration"},
+        {ShowMqttConfig, "show", "Show the current MQTT configuration"},
+        {ExitConfigHAMqtt, "exit", "Exit to parent menu"},
+};
+int const LengthOfHaMqttCmdProcessors = sizeof(haMqttCmdProcessors) / sizeof(haMqttCmdProcessors[0]);
+
+
+
 
 //** HA_MqttClient class implementation - Setup for the MQTT client task. 
 //   This function is called from the main setup() function
 void HA_MqttClient::setup()
 {
-    logger.Printf(Logger::RecType::Info, "mqttClientTask is starting");
+    logger.Printf(Logger::RecType::Progress, "mqttClientTask: starting");
 
     // Initialize the MQTT configuration - if not already initialized
     mqttConfig.Begin();
     if (!mqttConfig.IsValid())
     {
-        logger.Printf(Logger::RecType::Info, "MQTT Config not valid - initializing to defaults");
+        logger.Printf(Logger::RecType::Warning, "MQTT: Config not valid - initializing to defaults");
         mqttConfig.GetRecord()._brokerIP = (uint32_t)(IPAddress(192, 168, 3, 48));
         mqttConfig.GetRecord()._brokerPort = 1883;
         strcpy(mqttConfig.GetRecord()._clientId, "SpaHeater");
@@ -471,7 +599,7 @@ void HA_MqttClient::setup()
     }
     else
     {
-        logger.Printf(Logger::RecType::Info, "MQTT Config is valid");
+        logger.Printf(Logger::RecType::Progress, "MQTT: Config valid");
     }
 
     //** Build all expanded topic strings and compute sizes of the expanded HA entity /config JSON strings
@@ -577,7 +705,7 @@ void HA_MqttClient::loop()
         int status = BeginMessage(MqttClient, BaseEntityTopic, _haConfig, ExpandedMsgSize);
         if (!status)
         {
-            logger.Printf(Logger::RecType::Warning, "HA_MqttClient: Failed to begin message");
+            logger.Printf(Logger::RecType::Warning, "MQTT: Failed to begin message");
             return false;
         }
 
@@ -585,14 +713,14 @@ void HA_MqttClient::loop()
         size_t expandedSize = ExpandJson(MqttClient, ConfigJsonPrototype, BaseTopic, DeviceName, EntityName, commonAvailTopic);
         if (expandedSize != ExpandedMsgSize)
         {
-            logger.Printf(Logger::RecType::Warning, "HA_MqttClient: Expanded size of /config message body JSON string is incorrect");
+            logger.Printf(Logger::RecType::Warning, "MQTT: Expanded size of /config message body JSON string is incorrect");
             return false;
         }
 
         status = MqttClient.endMessage();
         if (!status)
         {
-            logger.Printf(Logger::RecType::Warning, "HA_MqttClient: endMessage() failed");
+            logger.Printf(Logger::RecType::Warning, "MQTT: endMessage() failed");
             return false;
         }
 
@@ -605,21 +733,21 @@ void HA_MqttClient::loop()
         int status = MqttClient.beginMessage(commonAvailTopic);
         if (!status)
         {
-            logger.Printf(Logger::RecType::Warning, "HA_MqttClient: Failed to begin message");
+            logger.Printf(Logger::RecType::Warning, "MQTT: Failed to begin message");
             return false;
         }
 
         size_t size = MqttClient.print("\"online\"");
         if (size == 0)
         {
-            logger.Printf(Logger::RecType::Warning, "HA_MqttClient: Failed to write /avail message body JSON string");
+            logger.Printf(Logger::RecType::Warning, "MQTT: Failed to write /avail message body JSON string");
             return false;
         }
 
         status = MqttClient.endMessage();
         if (!status)
         {
-            logger.Printf(Logger::RecType::Warning, "HA_MqttClient: endMessage() failed");
+            logger.Printf(Logger::RecType::Warning, "MQTT: endMessage() failed");
             return false;
         }
 
@@ -636,7 +764,7 @@ void HA_MqttClient::loop()
         int status = BeginMessage(MqttClient, BaseEntityTopic, PropertyName);
         if (!status)
         {
-            logger.Printf(Logger::RecType::Warning, "HA_MqttClient: SendPropertyMsg: Failed to begin message");
+            logger.Printf(Logger::RecType::Warning, "MQTT: SendPropertyMsg: Failed to begin message");
             return false;
         }
 
@@ -644,14 +772,14 @@ void HA_MqttClient::loop()
         size_t size = printf(MqttClient, "%0.2f", PropertyValue);
         if (size == 0)
         {
-            logger.Printf(Logger::RecType::Warning, "HA_MqttClient: SendPropertyMsg: Failed to write property message body JSON string");
+            logger.Printf(Logger::RecType::Warning, "MQTT: SendPropertyMsg: Failed to write property message body JSON string");
             return false;
         }
 
         status = MqttClient.endMessage();
         if (!status)
         {
-            logger.Printf(Logger::RecType::Warning, "HA_MqttClient: SendPropertyMsg: endMessage() failed");
+            logger.Printf(Logger::RecType::Warning, "MQTT: SendPropertyMsg: endMessage() failed");
             return false;
         }
 
@@ -668,7 +796,7 @@ void HA_MqttClient::loop()
         int status = BeginMessage(MqttClient, BaseEntityTopic, PropertyName);
         if (!status)
         {
-            logger.Printf(Logger::RecType::Warning, "HA_MqttClient: SendPropertyMsg: Failed to begin message");
+            logger.Printf(Logger::RecType::Warning, "MQTT: SendPropertyMsg: Failed to begin message");
             return false;
         }
 
@@ -676,14 +804,14 @@ void HA_MqttClient::loop()
         size_t size = printf(MqttClient, "\"%s\"", PropertyValue);
         if (size == 0)
         {
-            logger.Printf(Logger::RecType::Warning, "HA_MqttClient: SendPropertyMsg: Failed to write property message body JSON string");
+            logger.Printf(Logger::RecType::Warning, "MQTT: SendPropertyMsg: Failed to write property message body JSON string");
             return false;
         }
 
         status = MqttClient.endMessage();
         if (!status)
         {
-            logger.Printf(Logger::RecType::Warning, "HA_MqttClient: SendPropertyMsg: endMessage() failed");
+            logger.Printf(Logger::RecType::Warning, "MQTT: SendPropertyMsg: endMessage() failed");
             return false;
         }
 
@@ -966,13 +1094,13 @@ void HA_MqttClient::loop()
 
     //* Notification handlers for each MQTT subscription topic
     // Mode Set command
-    static NotificationHandler HandleWHModeSet = [] (const char *Payload) -> bool
+    static NotificationHandler HandleWHModeSet = [](const char *Payload) -> bool
     {
-        logger.Printf(Logger::RecType::Info, "Received WH Mode Set command: %s", Payload);
+        logger.Printf(Logger::RecType::Info, "MQTT: Received WH Mode Set command: %s", Payload);
         BoilerControllerTask::BoilerMode mode = BoilerControllerTask::GetBoilerModeFromDescription(Payload);
         if (mode == BoilerControllerTask::BoilerMode::Undefined)
         {
-            logger.Printf(Logger::RecType::Warning, "Invalid WH Mode Set command value: %s", Payload);
+            logger.Printf(Logger::RecType::Warning, "MQTT: Invalid WH Mode Set command value: %s", Payload);
             return false;
         }
 
@@ -982,7 +1110,7 @@ void HA_MqttClient::loop()
         boilerConfig.Begin();
         if (!boilerConfig.IsValid())
         {
-            logger.Printf(Logger::RecType::Warning, "Failed to write WH Mode Set command value to config: %s", Payload);
+            logger.Printf(Logger::RecType::Warning, "MQTT: Failed to write WH Mode Set command value to config: %s", Payload);
             return false;
         }
 
@@ -1004,7 +1132,7 @@ void HA_MqttClient::loop()
         boilerConfig.Begin();
         if (!boilerConfig.IsValid())
         {
-            logger.Printf(Logger::RecType::Warning, "SetTargetTemp: Failed to write to config");
+            logger.Printf(Logger::RecType::Warning, "MQTT: SetTargetTemp: Failed to write to config");
             return false;
         }
 
@@ -1015,9 +1143,9 @@ void HA_MqttClient::loop()
         return true;
     };
     // Setpoint Set command
-    static NotificationHandler HandleWHSetpointSet = [] (const char *Payload) -> bool
+    static NotificationHandler HandleWHSetpointSet = [](const char *Payload) -> bool
     {
-        logger.Printf(Logger::RecType::Info, "Received WH Setpoint Set command: %s", Payload);
+        logger.Printf(Logger::RecType::Info, "MQTT: Received WH Setpoint Set command: %s", Payload);
         float setpoint = $FtoC(atof(Payload));
 
         return SetTargetTempAndHysterisis(setpoint, boilerConfig.GetRecord()._hysteresis);
@@ -1026,41 +1154,41 @@ void HA_MqttClient::loop()
     // Hysterisis Set command
     static NotificationHandler HandleHysterisisSetCmd = [](const char *Payload) -> bool
     {
-        logger.Printf(Logger::RecType::Info, "Received Hysterisis Set command: %s", Payload);
+        logger.Printf(Logger::RecType::Info, "MQTT: Received Hysterisis Set command: %s", Payload);
         float hysterisis = $FDiffToC(atof(Payload));
 
         return SetTargetTempAndHysterisis(boilerConfig.GetRecord()._setPoint, hysterisis);
     };
 
     // Reset Button command
-    static NotificationHandler HandleResetButtonCmd = [] (const char *Payload) -> bool
+    static NotificationHandler HandleResetButtonCmd = [](const char *Payload) -> bool
     {
-        logger.Printf(Logger::RecType::Info, "Received Reset Button Event: %s", Payload);
+        logger.Printf(Logger::RecType::Info, "MQTT: Received Reset Button Event: %s", Payload);
         boilerControllerTask.ResetIfSafe();
         return true;
     };
 
     // Start Button command
-    static NotificationHandler HandleStartButtonCmd = [] (const char *Payload) -> bool
+    static NotificationHandler HandleStartButtonCmd = [](const char *Payload) -> bool
     {
-        logger.Printf(Logger::RecType::Info, "Received Start Button Event: %s", Payload);
+        logger.Printf(Logger::RecType::Info, "MQTT: Received Start Button Event: %s", Payload);
         boilerControllerTask.StartIfSafe();
         return true;
     };
 
     // Stop Button command
-    static NotificationHandler HandleStopButtonCmd = [] (const char *Payload) -> bool
+    static NotificationHandler HandleStopButtonCmd = [](const char *Payload) -> bool
     {
-        logger.Printf(Logger::RecType::Info, "Received Stop Button Event: %s", Payload);
+        logger.Printf(Logger::RecType::Info, "MQTT: Received Stop Button Event: %s", Payload);
         boilerControllerTask.StopIfSafe();
         return true;
     };
 
     // Reboot Button command
-    static NotificationHandler HandleRebootButtonCmd = [] (const char *Payload) -> bool
+    static NotificationHandler HandleRebootButtonCmd = [](const char *Payload) -> bool
     {
-        logger.Printf(Logger::RecType::Info, "Received Reboot Button Event: %s", Payload);
-        logger.Printf(Logger::RecType::Info, "***rebooting***");
+        logger.Printf(Logger::RecType::Info, "MQTT: Received Reboot Button Event: %s", Payload);
+        logger.Printf(Logger::RecType::Progress, "MQTT: ***rebooting***");
         delay(1000);
         NVIC_SystemReset();
         $FailFast();
@@ -1072,7 +1200,7 @@ void HA_MqttClient::loop()
 
     static NotificationHandler HandleHAIntgAvailEvent = [](const char *Payload) -> bool
     {
-        logger.Printf(Logger::RecType::Info, "Received HA Intg Avail Event: %s", Payload);
+        logger.Printf(Logger::RecType::Info, "MQTT: Received HA Intg Avail Event: %s", Payload);
         if (strcmp(Payload, "online") == 0)
         {
             HAIntgAvailCameTrue = true;     // Cause reconnect to broker
@@ -1151,63 +1279,62 @@ void HA_MqttClient::loop()
     //******************************************************************************
     //** State machine implementation for MQTT client
 
-    static WiFiClient wifiClient;
-    static MqttClient mqttClient(wifiClient);
+    static shared_ptr<Client> netClient = move(NetworkTask::CreateClient());
+    static MqttClient mqttClient(*netClient.get());
 
     enum class State
     {
-        WaitForWiFi,
+        WaitForNetConnection,
         ConnectingToBroker,
         SendSubscriptions,
         SendConfigs,
         SendOnlineAvailMsg,
         Connected
     };
-    static StateMachineState<State> state(State::WaitForWiFi);
+    static StateMachineState<State> state(State::WaitForNetConnection);
 
     switch ((State)state)
     {
-        //* Delay while waiting for WiFi to connect and be available
-        case State::WaitForWiFi:
+        //* Delay while waiting for network to connect and be available
+        case State::WaitForNetConnection:
         {
-            enum class WiFiStatus
+            enum class NetworkStatus
             {
                 Unknown,
                 Connected,
                 Disconnected
             };
+            static StateMachineState<NetworkStatus> networkState(NetworkStatus::Unknown);
 
-            static StateMachineState<WiFiStatus> wifiState(WiFiStatus::Unknown);
             if (state.IsFirstTime())
             {
-                wifiState.ChangeState(WiFiStatus::Unknown);
+                networkState.ChangeState(NetworkStatus::Unknown);
             }
 
-            // inner state machine to handle the WiFi connection, delays, and retries
-            switch ((WiFiStatus)wifiState)
+            // inner state machine to handle the network connection, delays, and retries
+            switch ((NetworkStatus)networkState)
             {
                 static Timer delayTimer;
 
-                case WiFiStatus::Unknown:
+                case NetworkStatus::Unknown:
                 {
                     mqttClient.stop();
-                    static int wifiStatus = WiFi.status();
-                    if (wifiStatus == WL_CONNECTED)
+                    if (network.IsAvailable())
                     {
-                        // WiFi is already connected - delay - allow some settling time
+                        // Network is already connected - delay - allow some settling time
                         delayTimer.SetAlarm(4000);
-                        wifiState.ChangeState(WiFiStatus::Connected);
+                        networkState.ChangeState(NetworkStatus::Connected);
                         return;
                     }
 
-                    logger.Printf(Logger::RecType::Info, "Waiting for WiFi to connect - delay 5 secs");
-                    delayTimer.SetAlarm(5000);          // don't hammer the WiFi
-                    wifiState.ChangeState(WiFiStatus::Disconnected);
+                    logger.Printf(Logger::RecType::Progress, "MQTT: Waiting for network connection - delay 5 secs");
+                    delayTimer.SetAlarm(5000);          // don't hammer the net
+                    networkState.ChangeState(NetworkStatus::Disconnected);
                 }
                 break;
 
-                // WiFi is connected - delay before connecting to broker
-                case WiFiStatus::Connected:
+                // Network is connected - delay before connecting to broker
+                case NetworkStatus::Connected:
                 {
                     if (delayTimer.IsAlarmed())
                     {
@@ -1216,12 +1343,12 @@ void HA_MqttClient::loop()
                 }
                 break;
 
-                // WiFi is disconnected - delay before retrying WiFi connection
-                case WiFiStatus::Disconnected:
+                // Network is disconnected - delay before retrying net connection
+                case NetworkStatus::Disconnected:
                 {
                     if (delayTimer.IsAlarmed())
                     {
-                        wifiState.ChangeState(WiFiStatus::Unknown);
+                        networkState.ChangeState(NetworkStatus::Unknown);
                     }
                 }
                 break;
@@ -1234,7 +1361,7 @@ void HA_MqttClient::loop()
         {
             static IPAddress brokerIP;
 
-            logger.Printf(Logger::RecType::Info, "Connecting to MQTT Broker: IP: '%s' Port: '%d'", 
+            logger.Printf(Logger::RecType::Progress, "MQTT: Connecting to Broker: IP: '%s' Port: '%d'", 
                 IPAddress(mqttConfig.GetRecord()._brokerIP).toString().c_str(), 
                 mqttConfig.GetRecord()._brokerPort);
 
@@ -1251,12 +1378,12 @@ void HA_MqttClient::loop()
             if (!mqttClient.connect(brokerIP, mqttConfig.GetRecord()._brokerPort))
             {
                 // failed for some reason
-                logger.Printf(Logger::RecType::Critical, "Failed to connect to MQTT Broker - delaying 5 secs and retrying");
-                state.ChangeState(State::WaitForWiFi);
+                logger.Printf(Logger::RecType::Critical, "MQTT: Failed to connect to Broker - delaying 5 secs and retrying");
+                state.ChangeState(State::WaitForNetConnection);
                 return;
             }
 
-            logger.Printf(Logger::RecType::Info, "Connected to MQTT Broker - sending subscriptions to Home Assistant");
+            logger.Printf(Logger::RecType::Progress, "MQTT: Connected to Broker - sending subscriptions to Home Assistant");
 
             // Set the message handler for incoming messages
             HAIntgAvailCameTrue = false;
@@ -1286,11 +1413,11 @@ void HA_MqttClient::loop()
                 memcpy(&topic[subscribedTopics[ix]._baseTopicSize], subscribedTopics[ix]._topicSuffix, subscribedTopics[ix]._topicSuffixSize);
                 topic[subscribedTopics[ix]._baseTopicSize + subscribedTopics[ix]._topicSuffixSize] = '\0';
 
-                logger.Printf(Logger::RecType::Info, "Subscribing to topic: %s", topic);
+                logger.Printf(Logger::RecType::Progress, "MQTT: Subscribing to topic: %s", topic);
                 if (!mqttClient.subscribe(topic))
                 {
-                    logger.Printf(Logger::RecType::Critical, "Failed to subscribe to topic: %s - restarting", topic);
-                    state.ChangeState(State::WaitForWiFi);
+                    logger.Printf(Logger::RecType::Warning, "MQTT: Failed to subscribe to topic: %s - restarting", topic);
+                    state.ChangeState(State::WaitForNetConnection);
                     return;
                 }
 
@@ -1298,7 +1425,7 @@ void HA_MqttClient::loop()
             }
             else
             {
-                logger.Printf(Logger::RecType::Info, "All subscriptions sent to Home Assistant - now sending /config messages");
+                logger.Printf(Logger::RecType::Progress, "MQTT: All subscriptions sent to Home Assistant - now sending /config messages");
                 state.ChangeState(State::SendConfigs);
             }
         }
@@ -1319,7 +1446,7 @@ void HA_MqttClient::loop()
             if (ix < _entityDescCount)
             {
                 HaEntityDesc &desc = _entityDescs[ix];
-                logger.Printf(Logger::RecType::Info, "Sending /config message for entity: %s", desc._EntityName);
+                logger.Printf(Logger::RecType::Progress, "MQTT: Sending /config message for entity: %s", desc._EntityName);
                 if (!SendConfigJSON(
                         mqttClient,
                         mqttConfig.GetRecord()._baseHATopic,
@@ -1328,14 +1455,14 @@ void HA_MqttClient::loop()
                         desc._EntityName, desc._ConfigJsonTemplate,
                         *desc._ExpandedMsgSizeResult))
                 {
-                    logger.Printf(Logger::RecType::Critical, "Failed to send /config message for entity: %s - restarting", desc._EntityName);
-                    state.ChangeState(State::WaitForWiFi);
+                    logger.Printf(Logger::RecType::Warning, "MQTT: Failed to send /config message for entity: %s - restarting", desc._EntityName);
+                    state.ChangeState(State::WaitForNetConnection);
                     return;
                 }
             }
             else
             {
-                logger.Printf(Logger::RecType::Info, "All /config messages sent to Home Assistant - now sending /avail message after 2sec delay");
+                logger.Printf(Logger::RecType::Progress, "MQTT: All /config messages sent to Home Assistant - now sending /avail message after 2sec delay");
                 state.ChangeState(State::SendOnlineAvailMsg);
             }
 
@@ -1385,15 +1512,15 @@ void HA_MqttClient::loop()
                 case AvailState::SendAvail:
                 {
                     // Tell Home Assistant that all entities are available
-                    logger.Printf(Logger::RecType::Info, "Sending /avail message to Home Assistant");
+                    logger.Printf(Logger::RecType::Progress, "MQTT: Sending /avail message to Home Assistant");
                     if (!SendOnlineAvailMsg(mqttClient))
                     {
-                        logger.Printf(Logger::RecType::Critical, "Failed to send /avail messages to Home Assistant - restarting");
-                        state.ChangeState(State::WaitForWiFi);
+                        logger.Printf(Logger::RecType::Warning, "Failed to send /avail messages to Home Assistant - restarting");
+                        state.ChangeState(State::WaitForNetConnection);
                         return;
                     }
 
-                    logger.Printf(Logger::RecType::Info, "/avail message sent to Home Assistant - now monitoring for incoming messages");
+                    logger.Printf(Logger::RecType::Progress, "MQTT: /avail message sent to Home Assistant - now monitoring for incoming messages");
                     state.ChangeState(State::Connected);
                 }
                 break;
@@ -1413,8 +1540,8 @@ void HA_MqttClient::loop()
             // Check for lost connection to MQTT Broker and restart SM if lost
             if (!mqttClient.connected())
             {
-                logger.Printf(Logger::RecType::Critical, "Lost connection to MQTT Broker - restarting");
-                state.ChangeState(State::WaitForWiFi);
+                logger.Printf(Logger::RecType::Warning, "MQTT: Lost connection to Broker - restarting");
+                state.ChangeState(State::WaitForNetConnection);
                 return;
             }
 
@@ -1422,8 +1549,8 @@ void HA_MqttClient::loop()
             if (HAIntgAvailCameTrue)
             {
                 HAIntgAvailCameTrue = false;
-                logger.Printf(Logger::RecType::Info, "HAIntgAvailCameTrue - restarting");
-                state.ChangeState(State::WaitForWiFi);
+                logger.Printf(Logger::RecType::Progress, "MQTT: HAIntgAvailCameTrue - restarting");
+                state.ChangeState(State::WaitForNetConnection);
                 return;
             }
 
@@ -1433,8 +1560,8 @@ void HA_MqttClient::loop()
             // if this state was just entered from another state
             if (!MonitorBoiler(mqttClient, state.IsFirstTime()))
             {
-                logger.Printf(Logger::RecType::Warning, "Failed in MonitorBoiler - restarting");
-                state.ChangeState(State::WaitForWiFi);
+                logger.Printf(Logger::RecType::Warning, "MQTT: Failed in MonitorBoiler - restarting");
+                state.ChangeState(State::WaitForNetConnection);
                 return;
             }
         }
@@ -1447,130 +1574,5 @@ void HA_MqttClient::loop()
     }
 }
 
-
-//* MQTT/HA related console command processors for configuration of the MQTT client to HA
-CmdLine::Status ExitConfigHAMqtt(Stream &CmdStream, int Argc, char const **Args, void *Context)
-{
-    ((ConsoleTask *)Context)->Pop();
-    return CmdLine::Status::Ok;
-}
-
-CmdLine::Status ShowMqttConfig(Stream &CmdStream, int Argc, char const **Args, void *Context)
-{
-    // Show the current MQTT configuration from the configuration record
-    if (!mqttConfig.IsValid())
-    {
-        printf(CmdStream, "MQTT configuration is not valid\n");
-        return CmdLine::Status::Ok;
-    }
-
-    if (mqttConfig.GetRecord().IsFullyConfigured() == false)
-    {
-        printf(CmdStream, "*MQTT configuration is not fully configured\n");
-    }
-
-    printf(CmdStream, "MQTT Broker IP: %s; Port#: %d\n", 
-        IPAddress(mqttConfig.GetRecord()._brokerIP).toString().c_str(), 
-        mqttConfig.GetRecord()._brokerPort);
-    printf(CmdStream, "Client ID: '%s'; Username: '%s'; Password: '%s'\n", 
-        mqttConfig.GetRecord()._clientId, 
-        mqttConfig.GetRecord()._username, 
-        mqttConfig.GetRecord()._password);
-
-    printf(CmdStream, "Base HA Topic: '%s'; Device Name: '%s'\n\n", 
-        mqttConfig.GetRecord()._baseHATopic, 
-        mqttConfig.GetRecord()._haDeviceName);
-
-    return CmdLine::Status::Ok;
-}
-
-CmdLine::Status EraseMqttConfig(Stream &CmdStream, int Argc, char const **Args, void *Context)
-{
-    // Erase the current MQTT configuration
-    mqttConfig.Erase();
-    mqttConfig.Begin();
-    $Assert(mqttConfig.IsValid() == false);
-
-    return CmdLine::Status::Ok;
-}
-
-CmdLine::Status SetConfigVar(Stream &CmdStream, int Argc, char const **Args, void *Context)
-{
-    if (Argc < 2)
-    {
-        printf(CmdStream, "Usage: set <var> <value> or set ? for help\n");
-        return CmdLine::Status::UnexpectedParameterCount;
-    }
-
-    if (strcmp(Args[1], "?") == 0)
-    {
-        printf(CmdStream, "MQTT/HA Configuration Variables:\n");
-        printf(CmdStream, "   ip <ip> - Set the MQTT broker IP\n");
-        printf(CmdStream, "   port <port> - Set the MQTT broker port number\n");
-        printf(CmdStream, "   id <id>  - Set the MQTT client ID\n");
-        printf(CmdStream, "   user <username> - Set the MQTT username\n");
-        printf(CmdStream, "   password <password> - Set the MQTT password\n");
-        printf(CmdStream, "   topic <topic> - Set the base HA topic\n");
-        printf(CmdStream, "   name <device name> - Set the HA device name\n");
-        return CmdLine::Status::Ok;
-    }
-
-    if (Argc < 3)
-    {
-        return CmdLine::Status::UnexpectedParameterCount;
-    }
-
-    if (strcmp(Args[1], "ip") == 0)
-    {
-        mqttConfig.GetRecord()._brokerIP = IPAddress(Args[2]);
-        mqttConfig.Write();
-    }
-    else if (strcmp(Args[1], "port") == 0)
-    {
-        mqttConfig.GetRecord()._brokerPort = atoi(Args[2]);
-        mqttConfig.Write();
-    }
-    else if (strcmp(Args[1], "id") == 0)
-    {
-        strncpy(mqttConfig.GetRecord()._clientId, Args[2], sizeof(mqttConfig.GetRecord()._clientId));
-        mqttConfig.Write();
-    }
-    else if (strcmp(Args[1], "user") == 0)
-    {
-        strncpy(mqttConfig.GetRecord()._username, Args[2], sizeof(mqttConfig.GetRecord()._username));
-        mqttConfig.Write();
-    }
-    else if (strcmp(Args[1], "password") == 0)
-    {
-        strncpy(mqttConfig.GetRecord()._password, Args[2], sizeof(mqttConfig.GetRecord()._password));
-        mqttConfig.Write();
-    }
-    else if (strcmp(Args[1], "topic") == 0)
-    {
-        strncpy(mqttConfig.GetRecord()._baseHATopic, Args[2], sizeof(mqttConfig.GetRecord()._baseHATopic));
-        mqttConfig.Write();
-    }
-    else if (strcmp(Args[1], "name") == 0)
-    {
-        strncpy(mqttConfig.GetRecord()._haDeviceName, Args[2], sizeof(mqttConfig.GetRecord()._haDeviceName));
-        mqttConfig.Write();
-    }
-    else
-    {
-        printf(CmdStream, "Unknown MQTT/HA configuration variable: %s\n", Args[1]);
-        return CmdLine::Status::InvalidParameter;
-    }
-
-    return CmdLine::Status::Ok;
-}
-
-CmdLine::ProcessorDesc haMqttCmdProcessors[] =
-    {
-        {SetConfigVar, "set", "Set a MQTT/HA configuration variables - set <var> <value> -or- set ? for help"},
-        {EraseMqttConfig, "erase", "Erase the current MQTT/HA configuration"},
-        {ShowMqttConfig, "show", "Show the current MQTT configuration"},
-        {ExitConfigHAMqtt, "exit", "Exit to parent menu"},
-};
-int const LengthOfHaMqttCmdProcessors = sizeof(haMqttCmdProcessors) / sizeof(haMqttCmdProcessors[0]);
 
 HA_MqttClient haMqttClient;

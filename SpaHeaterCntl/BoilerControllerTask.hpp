@@ -223,6 +223,8 @@ public:
     void ClearOneWireBusStats();
     void GetOneWireBusStats(OneWireBusStats& Stats);
 
+    void SetAllBoilerParametersFromConfig();
+
     // Console display helpers
     static void ShowCurrentBoilerConfig(Stream&, int PostLineFeedCount = 2);
     static void ShowCurrentBoilerState(Stream&);

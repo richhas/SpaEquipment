@@ -12,9 +12,9 @@
 
 /** EEPROM config support */
 //** Persistant storage partitions (8k max)
-constexpr uint16_t PS_NetworkConfigBase = 0;
-constexpr uint16_t PS_NetworkConfigBlkSize = 256;
-constexpr uint16_t PS_BootRecordBase = PS_NetworkConfigBase + PS_NetworkConfigBlkSize;
+constexpr uint16_t PS_WiFiConfigBase = 0;
+constexpr uint16_t PS_WiFiConfigBlkSize = 256;
+constexpr uint16_t PS_BootRecordBase = PS_WiFiConfigBase + PS_WiFiConfigBlkSize;
 constexpr uint16_t PS_BootRecordBlkSize = 32;
 constexpr uint16_t PS_TempSensorsConfigBase = PS_BootRecordBase + PS_BootRecordBlkSize;
 constexpr uint16_t PS_TempSensorsConfigBlkSize = 64;

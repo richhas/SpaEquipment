@@ -11,9 +11,11 @@
 class ConsoleTask : public ArduinoTask
 {
 public:
-    ConsoleTask() = delete;
+    ConsoleTask();
     ConsoleTask(Stream &StreamToUse);
     ~ConsoleTask();
+
+    void SetStream(Stream &StreamToUse); 
 
     virtual void setup();
     void begin(CmdLine::ProcessorDesc *Descs, int NbrOfDescs, char const *ContextStr = "");
@@ -28,7 +30,7 @@ public:
     void EndBoilerControl();
 
 private:
-    Stream &_stream;
+    Stream* _stream;
     CmdLine _cmdLine;
 
     struct ProcessorDesc

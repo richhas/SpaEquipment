@@ -28,9 +28,9 @@ private:
     };
 #pragma pack(pop)
 
-    FlashStore<Config, PS_NetworkConfigBase>
-        _config;
-    Stream &_traceOutput;
+    FlashStore<Config, PS_WiFiConfigBase> _config;
+        static_assert(PS_WiFiConfigBlkSize >= sizeof(FlashStore<Config, PS_WiFiConfigBase>));
+        
     bool _isInSleepState;
     WiFiServer _server;
     WiFiClient _client;
@@ -38,11 +38,9 @@ private:
     String _apNetName;
     String _apNetPassword;
 
-    static_assert(PS_NetworkConfigBlkSize >= sizeof(FlashStore<Config, PS_NetworkConfigBase>));
-
 public:
     WiFiJoinApTask() = delete;
-    WiFiJoinApTask(Stream &TraceOutput, const char *ApNetName, const char *ApNetPassword);
+    WiFiJoinApTask(const char *ApNetName, const char *ApNetPassword);
     ~WiFiJoinApTask();
 
     bool IsCompleted() { return _isInSleepState; }

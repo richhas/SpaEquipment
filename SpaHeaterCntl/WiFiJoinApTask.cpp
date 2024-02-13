@@ -6,12 +6,11 @@
 #include <string.h>
 #include "WiFiJoinApTask.hpp"
 
-WiFiJoinApTask wifiJoinApTask(Serial, "SpaHeaterAP", "123456789");
+WiFiJoinApTask wifiJoinApTask("SpaHeaterAP", "123456789");
 
 
-WiFiJoinApTask::WiFiJoinApTask(Stream& TraceOutput, const char* ApNetName, const char* ApNetPassword)
-    :   _traceOutput(TraceOutput),
-        _config(),
+WiFiJoinApTask::WiFiJoinApTask(const char* ApNetName, const char* ApNetPassword)
+    :   _config(),
         _server(80),
         _client(-1),
         _isInSleepState(false),
@@ -64,12 +63,12 @@ void WiFiJoinApTask::SetConfig(const char* SSID, const char* NetPassword, const 
 void WiFiJoinApTask::setup()
 {
     _config.Begin();
-    logger.Printf(Logger::RecType::Info, "WiFiJoinApTask is active - Config is %s", (_config.IsValid() ? "valid" : "invalid"));
+    logger.Printf(Logger::RecType::Progress, "WiFiJoinApTask: Active - Config is %s", (_config.IsValid() ? "valid" : "invalid"));
 
     // check for the WiFi module
     if (WiFi.status() == WL_NO_MODULE) 
     {
-        logger.Printf(Logger::RecType::Critical, "Communication with WiFi module failed!");
+        logger.Printf(Logger::RecType::Critical, "WiFiJoinApTask: Communication with WiFi module failed!");
         $FailFast();
     }
 
@@ -77,7 +76,7 @@ void WiFiJoinApTask::setup()
     String fv = WiFi.firmwareVersion();
     if (fv < WIFI_FIRMWARE_LATEST_VERSION) 
     {
-        logger.Printf(Logger::RecType::Warning, "Please upgrade the firmware");
+        logger.Printf(Logger::RecType::Warning, "WiFiJoinApTask: Please upgrade the firmware");
     }
 }
 
@@ -139,7 +138,7 @@ void WiFiJoinApTask::loop()
             status = WiFi.beginAP(_apNetName.c_str(), _apNetPassword.c_str());
             if (status != WL_AP_LISTENING) 
             {
-                logger.Printf(Logger::RecType::Warning, "Creating access point failed: %i\n\r", status);
+                logger.Printf(Logger::RecType::Warning, "WiFiJoinApTask: Creating access point failed: %i\n\r", status);
                 state = State::WatchConfig;
                 return;
             }
@@ -161,7 +160,7 @@ void WiFiJoinApTask::loop()
             // start the web server - port 80
             _server.begin();
 
-            PrintWiFiStatus(_traceOutput);
+            PrintWiFiStatus(Serial);
 
             matrixTask.PutString("N03");
             state = State::WatchForClient;
@@ -178,13 +177,13 @@ void WiFiJoinApTask::loop()
                 if (status == WL_AP_CONNECTED) 
                 {
                     // a device has connected to the AP
-                    logger.Printf(Logger::RecType::Info, "Device connected to AP");
+                    logger.Printf(Logger::RecType::Progress, "WiFiJoinApTask: Device connected to AP");
                     matrixTask.PutString("N04");
                 } 
                 else 
                 {
                     // a device has disconnected from the AP, and we are back in listening mode
-                    logger.Printf(Logger::RecType::Info, "Device disconnected from AP");
+                    logger.Printf(Logger::RecType::Progress, "WiFiJoinApTask: Device disconnected from AP");
                     matrixTask.PutString("N05");
                 }
             }
@@ -192,9 +191,6 @@ void WiFiJoinApTask::loop()
             _client = _server.available();
             if (_client)
             {
-#if defined(debugOut)
-                logger.Printf(Logger::RecType::Info, "new client");
-#endif
                 _currentLine = "";
                 state = State::ClientConnected;
             }
@@ -214,9 +210,6 @@ void WiFiJoinApTask::loop()
             if (_client.available()) 
             {                                       // if there's bytes to read from the client,
                 char c = _client.read();            // read a byte, then
-#if defined(debugOut)                
-                _traceOutput.write(c);              // print it out to the serial monitor
-#endif      
                 if (c == '\n') 
                 {                                   
                     // EOL...
@@ -270,9 +263,6 @@ void WiFiJoinApTask::loop()
 
                         // break out of the while loop:
                         _client.stop();
-#if defined(debugOut)
-                        logger.Printf(Logger::RecType::Info, "client disconnected");
-#endif                    
 
                         state = State::WatchForClient;
                         matrixTask.PutString("N03");
@@ -315,11 +305,6 @@ void WiFiJoinApTask::loop()
             if (_client.available()) 
             {                                        // if there's bytes to read from the client,
                 char c = _client.read();            // read a byte, then
-#if defined(debugOut)                
-                _traceOutput.write(c);              // print it out to the serial monitor
-#endif
-
-            
                 if (c == '\n') 
                 {                                   
                     // EOL...
@@ -327,9 +312,6 @@ void WiFiJoinApTask::loop()
                     // that's the end of the client HTTP response (POST), so get the submitted form data:
                     if (_currentLine.length() == 0) 
                     {
-#if defined(debugOut)
-                        logger.Printf(Logger::RecType::Info, "**BLANK LINE**");
-#endif                        
                         state = State::ProcessFormData;
                         return;
                     }
@@ -339,9 +321,6 @@ void WiFiJoinApTask::loop()
                         if (_currentLine.startsWith("Content-Length: "))
                         {
                             contentLength = _currentLine.substring(16).toInt();
-#if defined(debugOut)
-                            logger.Printf(Logger::RecType::Info, "Have content length of: %i", contentLength);
-#endif                            
                         }
                           // if you got a newline, then clear currentLine. Keep eating lines until a blank line
                         _currentLine = "";
@@ -374,7 +353,7 @@ void WiFiJoinApTask::loop()
             {
                 // Have the full payload in _currentLine
                 ParsePostData(_currentLine, savedSSID, savedNetPw, savedAdminPw);
-                logger.Printf(Logger::RecType::Info, "Posted Config data: SSID: '%s'; password: '%s'; admin pw: '%s'\n",
+                logger.Printf(Logger::RecType::Info, "WiFiJoinApTask: Posted Config data: SSID: '%s'; password: '%s'; admin pw: '%s'\n",
                               savedSSID.c_str(),
                               savedNetPw.c_str(),
                               savedAdminPw.c_str());
@@ -391,9 +370,6 @@ void WiFiJoinApTask::loop()
             if (_client.available()) 
             {                                        // if there's bytes to read from the client,
                 char c = _client.read();            // read a byte, then
-#if defined(debugOut)                
-                _traceOutput.write(c);              // print it out to the serial monitor
-#endif
                 _currentLine += c;
                 contentLength--;
             }
@@ -404,7 +380,7 @@ void WiFiJoinApTask::loop()
         {
             // Test that the supplied network is available and can be connected to given the supplied info
             matrixTask.PutString("N11");
-            logger.Printf(Logger::RecType::Info, "Attempting to connect to: '%s'", savedSSID.c_str());
+            logger.Printf(Logger::RecType::Info, "WiFiJoinApTask: Attempting to connect to: '%s'", savedSSID.c_str());
             status = WiFi.begin(savedSSID.c_str(), savedNetPw.c_str());
             if (status == WL_CONNECTED)
             {
@@ -412,7 +388,7 @@ void WiFiJoinApTask::loop()
                 return;
             }
 
-            logger.Printf(Logger::RecType::Info, "Attempt to connect to: '%s' failed! - try again", savedSSID.c_str());
+            logger.Printf(Logger::RecType::Info, "WiFiJoinApTask: Attempt to connect to: '%s' failed! - try again", savedSSID.c_str());
             lastError = "*** WiFi.begin() failed ***";
             _client.stop();
             _server.end();
@@ -454,7 +430,7 @@ void WiFiJoinApTask::loop()
         {
             matrixTask.PutString("N14");
             _client.stop();
-            logger.Printf(Logger::RecType::Info, "client disconnected");
+            logger.Printf(Logger::RecType::Info, "WiFiJoinApTask: client disconnected");
             state = State::WatchForClient;
         }
         break;
