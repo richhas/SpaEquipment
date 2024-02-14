@@ -877,7 +877,7 @@ void BoilerControllerTask::DisplayTargetTemps(Stream &output, const TargetTemps 
 {
     printf(output, "%sTarget Temperatures:\n", prependString);
     printf(output, "%s    Set Point: %.2fC (%.2fF)\n", prependString, temps._setPoint, $CtoF(temps._setPoint));
-    printf(output, "%s    Hysteresis: %.2f\n", prependString, temps._hysteresis);
+    printf(output, "%s    Hysteresis: %.2fC (%.2fF)\n", prependString, temps._hysteresis, $CDiffToF(temps._hysteresis));
 }
 
 void BoilerControllerTask::DisplayOneWireBusStats(Stream& output, const OneWireBusStats& stats, const char* prependString)
@@ -1260,6 +1260,12 @@ CmdLine::Status ClearOneWireStatsControlProcessor(Stream &CmdStream, int Argc, c
     return CmdLine::Status::Ok;
 }
 
+CmdLine::Status ConfigBoilerProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    ((ConsoleTask *)Context)->Push(configBoilerCmdProcessors[0], LengthOfConfigBoilerCmdProcessors, "BoilerConfig");
+    return CmdLine::Status::Ok;
+}
+
 CmdLine::ProcessorDesc controlBoilerCmdProcessors[] =
 {
     {AssignTempConfigProcessor, "assign", "Assign sensor to function. Format: assign <sensor number> 'ambiant'|'boilerIn'|'boilerOut'"},
@@ -1272,6 +1278,7 @@ CmdLine::ProcessorDesc controlBoilerCmdProcessors[] =
     {ResetBoilerControlProcessor, "Reset", "Reset the boiler state machine - only if it is Faulted. Usage: setBoilerConfig"},
     {ShowBoilerControlProcessor, "show", "Show current boiler state"},
     {ClearOneWireStatsControlProcessor, "clearOWStats", "Clear the OneWire Bus Stats"},
+    {ConfigBoilerProcessor, "config", "Config menu for the Boiler"},
     {ExitBoilerControlProcessor, "exit", "Exit the control of the boiler"},
 };
 int const LengthOfControlBoilerCmdProcessors = sizeof(controlBoilerCmdProcessors) / sizeof(CmdLine::ProcessorDesc);

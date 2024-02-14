@@ -22,7 +22,10 @@ constexpr uint16_t PS_MQTTBrokerConfigBase = PS_TempSensorsConfigBase + PS_TempS
 constexpr uint16_t PS_MQTTBrokerConfigBlkSize = 256;
 constexpr uint16_t PS_BoilerConfigBase = PS_MQTTBrokerConfigBase + PS_MQTTBrokerConfigBlkSize;
 constexpr uint16_t PS_BoilerConfigBlkSize = 64;
-constexpr uint16_t PS_TotalConfigSize = PS_BoilerConfigBase + PS_BoilerConfigBlkSize;
+constexpr uint16_t PS_NetworkConfigBase = PS_BoilerConfigBase + PS_BoilerConfigBlkSize;
+constexpr uint16_t PS_NetworkConfigBlkSize = 64;
+
+constexpr uint16_t PS_TotalConfigSize = PS_NetworkConfigBase + PS_NetworkConfigBlkSize;
 
 constexpr uint16_t PS_TotalDiagStoreSize = (8 * 1024) - PS_TotalConfigSize;
 constexpr uint16_t PS_DiagStoreBase = PS_TotalDiagStoreSize;

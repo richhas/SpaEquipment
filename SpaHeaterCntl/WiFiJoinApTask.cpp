@@ -400,11 +400,12 @@ void WiFiJoinApTask::loop()
         {
             // Supplied WiFi config info proved to work - store the config and restart SM at first state
             matrixTask.PutString("N13");
-            logger.Printf(Logger::RecType::Info, "Connected to '%s'", savedSSID.c_str());
+            logger.Printf(Logger::RecType::Info, "WiFiJoinApTask: Connected to '%s'", savedSSID.c_str());
 
             // If is left up to other components to use the validated wifi config info - detach from the network
             _client.stop();
             _server.end();
+            WiFi.disconnect();
 
             // Write our config
             memset(&_config.GetRecord(), 0, sizeof(Config));

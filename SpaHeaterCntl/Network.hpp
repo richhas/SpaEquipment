@@ -3,7 +3,13 @@
 
 #pragma once
 #include "SpaHeaterCntl.hpp"
-#include "Network.hpp"
+#include <Client.h>
+#include <Server.h>
+#include <UDP.h>
+#include <memory>
+
+using namespace std;
+
 
 //** Network related definitions
 //* Main Network Task - maintains WiFi connection
@@ -17,7 +23,7 @@ public:
 
     virtual void setup() override;
     virtual void loop() override;
-    bool IsAvailable() { return _isAvailable; }
+    bool IsAvailable();
 
     static shared_ptr<Client> CreateClient();
     static shared_ptr<Server> CreateServer(int Port);
@@ -26,6 +32,8 @@ public:
     static shared_ptr<Client> available(shared_ptr<Server> Server);
     static void begin(shared_ptr<Server> Server);
     static void end(shared_ptr<Server> Server);
+
+    void disconnect();
 
 private: 
     static String &AppendHEX(uint8_t Byte, String &AddTo);
@@ -40,3 +48,5 @@ private:
 
 //** Cross module references
 extern class NetworkTask network;
+extern CmdLine::ProcessorDesc networkTaskCmdProcessors[];
+extern int const LengthOfNetworkTaskCmdProcessors;

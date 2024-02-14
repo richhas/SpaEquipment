@@ -308,5 +308,3 @@ extern class FlashStore<TempSensorsConfig, PS_TempSensorsConfigBase> tempSensors
 extern class FlashStore<BoilerConfig, PS_BoilerConfigBase> boilerConfig;
 extern CmdLine::ProcessorDesc controlBoilerCmdProcessors[];
 extern int const LengthOfControlBoilerCmdProcessors;
-extern CmdLine::ProcessorDesc configBoilerCmdProcessors[];
-extern int const LengthOfConfigBoilerCmdProcessors;

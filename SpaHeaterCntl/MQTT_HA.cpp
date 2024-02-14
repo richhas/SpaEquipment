@@ -1537,6 +1537,14 @@ void HA_MqttClient::loop()
         //  for any changed properties
         case State::Connected:
         {
+            // Check for lost network connection and restart SM if lost
+            if (!network.IsAvailable())
+            {
+                logger.Printf(Logger::RecType::Warning, "MQTT: Lost network connection - restarting");
+                state.ChangeState(State::WaitForNetConnection);
+                return;
+            }
+
             // Check for lost connection to MQTT Broker and restart SM if lost
             if (!mqttClient.connected())
             {

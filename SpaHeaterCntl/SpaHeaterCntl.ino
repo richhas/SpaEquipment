@@ -15,21 +15,18 @@
 //          - Use end of 8K for circular log buffer
 //      - NetworkTask - make independent of WiFi. Support ethernet and WiFi
 //      - Make dual targeted - UNO R4 Minima (Ethernet) and UNO R4 Maxie (WiFi)
+//         - ARDUINO_UNOR4_WIFI vs ARDUINO_UNOR4_MINIMA
 //      - Make libraries??
+//      - Consider replacing CriticalSection blks with "synchronized" blocks
+//      - Add some perf timing to main
 //
 
-
+#if !defined(ARDUINO_UNOR4_WIFI)
+#error "This is the wrong board for this code"
+#endif
 
 //** Main admin console commands
 // Command line processors for main menu
-CmdLine::Status ClearEEPROMProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
-{
-    CmdStream.println("Starting EEPROM Erase...");
-    wifiJoinApTask.EraseConfig();
-    CmdStream.println("EEPROM Erase has completed");
-    return CmdLine::Status::Ok;
-}
-
 CmdLine::Status SetLedDisplayProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
 {
     if (Argc != 2)
@@ -98,24 +95,6 @@ CmdLine::Status ShowRTCDateTime(Stream &CmdStream, int Argc, char const **Args, 
     return CmdLine::Status::Ok;
 }
 
-CmdLine::Status SetWiFiConfigProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
-{
-    if (Argc != 4)
-    {
-        return CmdLine::Status::UnexpectedParameterCount;
-    }
-
-    wifiJoinApTask.SetConfig(Args[1], Args[2], Args[3]);
-
-    return CmdLine::Status::Ok;
-}
-
-CmdLine::Status DisconnectWiFiProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
-{
-    WiFi.disconnect();
-    return CmdLine::Status::Ok;
-}
-
 CmdLine::Status RebootProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
 {
     printf(CmdStream, "***rebooting***\n");
@@ -125,58 +104,38 @@ CmdLine::Status RebootProcessor(Stream &CmdStream, int Argc, char const **Args, 
     return CmdLine::Status::Ok;
 }
 
-CmdLine::Status ShowTempSensorsProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
-{
-    auto const sensors = boilerControllerTask.GetTempSensors();
-
-    for (auto const &sensor : sensors)
-    {
-        for (uint8_t *byte = ((uint8_t *)(&sensor)); byte < ((uint8_t *)(&sensor)) + sizeof(sensor); ++byte)
-        {
-            CmdStream.print(" ");
-            CmdStream.print(*byte);
-        }
-        CmdStream.println();
-    }
-
-    return CmdLine::Status::Ok;
-}
-
-CmdLine::Status ConfigBoilerProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
-{
-    ((ConsoleTask *)Context)->Push(configBoilerCmdProcessors[0], LengthOfConfigBoilerCmdProcessors, "BoilerConfig");
-    return CmdLine::Status::Ok;
-}
-
 CmdLine::Status BoilerProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
 {
     ((ConsoleTask *)Context)->Push(controlBoilerCmdProcessors[0], LengthOfControlBoilerCmdProcessors, "BoilerControl");
     return CmdLine::Status::Ok;
 }
 
-CmdLine::Status ConfigHaMQTTProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+CmdLine::Status HaMQTTProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
 {
-    ((ConsoleTask *)Context)->Push(haMqttCmdProcessors[0], LengthOfHaMqttCmdProcessors, "ConfigMQTT");
+    ((ConsoleTask *)Context)->Push(haMqttCmdProcessors[0], LengthOfHaMqttCmdProcessors, "MQTT-HA");
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status StartNetworkCmdProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    ((ConsoleTask *)Context)->Push(networkTaskCmdProcessors[0], LengthOfNetworkTaskCmdProcessors, "Network");
     return CmdLine::Status::Ok;
 }
 
 CmdLine::ProcessorDesc consoleTaskCmdProcessors[] =
-{
-    {SetRTCDateTime, "setTime", "Set the RTC date and time. Format: 'YYYY-MM-DD HH:MM:SS'"},
-    {ShowRTCDateTime, "showTime", "Show the current RTC date and time."},
-    {ClearEEPROMProcessor, "clearEPROM", "Clear all of the EEPROM"},
-    {SetLedDisplayProcessor, "ledDisplay", "Put tring to Led Matrix"},
-    {SetWiFiConfigProcessor, "setWiFi", "Set the WiFi Config. Format: <SSID> <Net Password> <Admin Password>"},
-    {DisconnectWiFiProcessor, "stopWiFi", "Disconnect WiFi"},
-    {RebootProcessor, "reboot", "Reboot the R4"},
-    {ShowTempSensorsProcessor, "showSensors", "Show the list of attached temperature sensors"},
-    {ConfigBoilerProcessor, "configBoiler", "Start the config of the Boiler"},
-    {BoilerProcessor, "boiler", "Start the Boiler console"},
-    {ConfigHaMQTTProcessor, "configMQTT", "MQTT/HA related config menu"},
+    {
+        {SetRTCDateTime, "setTime", "Set the RTC date and time. Format: 'YYYY-MM-DD HH:MM:SS'"},
+        {ShowRTCDateTime, "showTime", "Show the current RTC date and time."},
+        {SetLedDisplayProcessor, "ledDisplay", "Put tring to Led Matrix"},
+        {RebootProcessor, "reboot", "Reboot the R4"},
+        {BoilerProcessor, "boiler", "Boiler related menu"},
+        {HaMQTTProcessor, "mqtt", "MQTT/HA related menu"},
+        {StartNetworkCmdProcessor, "network", "Network related menu"},
 };
 int const LengthOfConsoleTaskCmdProcessors = sizeof(consoleTaskCmdProcessors) / sizeof(consoleTaskCmdProcessors[0]);
 
-//* Telnet Admin Console Task - hosts a TelnetServer and a ConsoleTask
+
+//** Telnet Admin Console Task definitions - hosts a TelnetServer and a ConsoleTask
 class TelnetConsole final : public ArduinoTask
 {
 private:
@@ -190,6 +149,7 @@ public:
     virtual void setup();
     virtual void loop();
 };
+
 
 //* Telnet Admin Console Task implementation
 TelnetConsole::TelnetConsole()
@@ -265,7 +225,7 @@ void TelnetConsole::loop()
 }
 
 
-//* System Instance (config) Record - In persistant storage
+//** System Instance (config) Record - In persistant storage
 #pragma pack(push, 1)
 struct BootRecord
 {
@@ -285,8 +245,11 @@ TelnetConsole   telnetConsole;
 FlashStore<BootRecord, PS_BootRecordBase> bootRecord;
     static_assert(PS_BootRecordBlkSize >= sizeof(FlashStore<BootRecord, PS_BootRecordBase>));
 
-void EnableRtcAfterPOR()
+
+//** POR Entry point
+void setup()
 {
+    // must be done right after POR to minimize loss of time
     $Assert(RTC.begin());
 
     // This strange, and time losing, sequence must be done to make the RTC start each POR
@@ -295,17 +258,11 @@ void EnableRtcAfterPOR()
     RTCTime now;
     RTC.getTime(now);
     RTC.setTimeIfNotRunning(now);
-}
-
-//** POR Entry point
-void setup()
-{
-    EnableRtcAfterPOR();        // must be done right after POR to minimize loss of time
 
     Serial.begin(250000);
     delay(1000);
 
-//    modem.debug(Serial, 0);
+    //    modem.debug(Serial, 0);
 
     matrixTask.setup();
     matrixTask.PutString("S00");

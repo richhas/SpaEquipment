@@ -230,6 +230,10 @@ private:
     uint32_t    _alarmTime;         // msecs
 };
 
+class StopWatch
+{
+};
+
 
 //** Generalized Arduino processing task class
 class ArduinoTask

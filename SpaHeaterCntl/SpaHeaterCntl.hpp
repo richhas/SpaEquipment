@@ -17,7 +17,7 @@ using namespace std;
 #include "clilib.hpp"
 #include "FlashStore.hpp"
 #include "BoilerControllerTask.hpp"
-#include "WiFiJoinApTask.hpp"
+// #include "WiFiJoinApTask.hpp"
 #include "ConsoleTask.hpp"
 #include "Logger.hpp"
 #include "Network.hpp"
