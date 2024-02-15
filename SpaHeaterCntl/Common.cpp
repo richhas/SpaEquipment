@@ -47,7 +47,7 @@ void __attribute__ ((noinline)) FailFast(const char* FileName, int LineNumber)
 
 
 //* Common support functions
-SharedBuffer<256> sharedPrintfBuffer;
+SharedBuffer<256+512> sharedPrintfBuffer;
 
 //* limited printf to a stream - uses a shared thread-safe buffer to avoid stack overflow issues
 int printf(Stream &ToStream, const char *Format, ...)

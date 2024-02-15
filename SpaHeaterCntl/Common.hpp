@@ -13,25 +13,6 @@ extern void FailFast(const char* FileName, int LineNumber);
 #define $Assert(c) if (!(c)) FailFast(__FILE__, __LINE__);
 #define $FailFast() FailFast(__FILE__, __LINE__);
 
-/**
- * @brief A class that represents a critical section.
- * 
- * This class provides a convenient way to enter and exit a critical section
- * in multi-threaded environments. The constructor enters the critical section,
- * and the destructor exits the critical section automatically when the object
- * goes out of scope.
- *
- * The CriticalSection class uses the FreeRTOS taskENTER_CRITICAL and taskEXIT_CRITICAL
- * NOTE: This class is not reentrant. There will be lockups if the same thread tries to 
- * enter the critical section twice.
- */
-class CriticalSection
-{
-public:
-    CriticalSection() { taskENTER_CRITICAL(); }
-    ~CriticalSection() { taskEXIT_CRITICAL(); }
-};
-
 
 /**
  * @brief Template class for a shared buffer with singleton behavior.
@@ -151,13 +132,15 @@ SharedBuffer<TSize>::Handle::Handle()
     if (!initialized)
     {
         if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING)
-        {        
-            CriticalSection cs;
-            if (!initialized)
+        {
+            synchronized
             {
-                SharedBuffer<TSize>::_lock = xSemaphoreCreateBinary();
-                xSemaphoreGive(SharedBuffer<TSize>::_lock); // give the semaphore so it is available first time
-                initialized = true;
+                if (!initialized)
+                {
+                    SharedBuffer<TSize>::_lock = xSemaphoreCreateBinary();
+                    xSemaphoreGive(SharedBuffer<TSize>::_lock); // give the semaphore so it is available first time
+                    initialized = true;
+                }
             }
         }
         else
@@ -194,7 +177,7 @@ SharedBuffer<TSize>::Handle::~Handle()
 //* Common support functions
 
 //* Thread-safe shared buffers
-extern SharedBuffer<256> sharedPrintfBuffer;
+extern SharedBuffer<256+512> sharedPrintfBuffer;
 extern int printf(Stream& ToStream, const char* Format, ...);
 
 //* Helper for 64-bit formatted *printf output

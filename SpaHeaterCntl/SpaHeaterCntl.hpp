@@ -4,8 +4,6 @@
 
 #include <Arduino.h>
 #include <RTC.h>
-#include <ArduinoGraphics.h>
-#include <Arduino_LED_Matrix.h>
 #include <time.h>
 #include <vector>
 #include <stack>
@@ -17,11 +15,9 @@ using namespace std;
 #include "clilib.hpp"
 #include "FlashStore.hpp"
 #include "BoilerControllerTask.hpp"
-// #include "WiFiJoinApTask.hpp"
 #include "ConsoleTask.hpp"
 #include "Logger.hpp"
 #include "Network.hpp"
-#include "LedMatrixTask.hpp"
 #include "MQTT_HA.hpp"
 
 

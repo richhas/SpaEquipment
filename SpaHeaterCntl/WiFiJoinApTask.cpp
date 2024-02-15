@@ -109,7 +109,6 @@ void WiFiJoinApTask::loop()
     {
         firstTime = false;
         lastError = nullptr;
-        matrixTask.PutString("N00");
         state = State::WatchConfig;
     }
 
@@ -132,7 +131,6 @@ void WiFiJoinApTask::loop()
 
         case State::FormAP:
         {
-            matrixTask.PutString("N01");
             WiFi.config(IPAddress(192,48,56,2));
 
             status = WiFi.beginAP(_apNetName.c_str(), _apNetPassword.c_str());
@@ -151,7 +149,6 @@ void WiFiJoinApTask::loop()
 
         case State::WaitForApToForm:
         {
-            matrixTask.PutString("N02");
             if (delayTimer.IsAlarmed() == false)
             {
                 return;
@@ -162,7 +159,6 @@ void WiFiJoinApTask::loop()
 
             PrintWiFiStatus(Serial);
 
-            matrixTask.PutString("N03");
             state = State::WatchForClient;
         }
         break;
@@ -178,13 +174,11 @@ void WiFiJoinApTask::loop()
                 {
                     // a device has connected to the AP
                     logger.Printf(Logger::RecType::Progress, "WiFiJoinApTask: Device connected to AP");
-                    matrixTask.PutString("N04");
                 } 
                 else 
                 {
                     // a device has disconnected from the AP, and we are back in listening mode
                     logger.Printf(Logger::RecType::Progress, "WiFiJoinApTask: Device disconnected from AP");
-                    matrixTask.PutString("N05");
                 }
             }
 
@@ -199,7 +193,6 @@ void WiFiJoinApTask::loop()
 
         case State::ClientConnected:
         {
-            matrixTask.PutString("N06");
             if (!_client.connected())
             {
                 state = State::CloseClientConnection;
@@ -265,7 +258,6 @@ void WiFiJoinApTask::loop()
                         _client.stop();
 
                         state = State::WatchForClient;
-                        matrixTask.PutString("N03");
                         return;
                     }
                     else 
@@ -294,7 +286,6 @@ void WiFiJoinApTask::loop()
 
         case State::EatPostHeader:
         {
-            matrixTask.PutString("N08");
             if (!_client.connected())
             {
                 state = State::CloseClientConnection;
@@ -342,7 +333,6 @@ void WiFiJoinApTask::loop()
         case State::ProcessFormData:
         {
             // contentLength has the expected number of charcters on the POSTed response line - next incoming
-            matrixTask.PutString("N09");
             if (!_client.connected())
             {
                 state = State::CloseClientConnection;
@@ -379,7 +369,6 @@ void WiFiJoinApTask::loop()
         case State::StartNetConnection:
         {
             // Test that the supplied network is available and can be connected to given the supplied info
-            matrixTask.PutString("N11");
             logger.Printf(Logger::RecType::Info, "WiFiJoinApTask: Attempting to connect to: '%s'", savedSSID.c_str());
             status = WiFi.begin(savedSSID.c_str(), savedNetPw.c_str());
             if (status == WL_CONNECTED)
@@ -399,7 +388,6 @@ void WiFiJoinApTask::loop()
         case State::NetConnected:
         {
             // Supplied WiFi config info proved to work - store the config and restart SM at first state
-            matrixTask.PutString("N13");
             logger.Printf(Logger::RecType::Info, "WiFiJoinApTask: Connected to '%s'", savedSSID.c_str());
 
             // If is left up to other components to use the validated wifi config info - detach from the network
@@ -429,7 +417,6 @@ void WiFiJoinApTask::loop()
 
         case State::CloseClientConnection:
         {
-            matrixTask.PutString("N14");
             _client.stop();
             logger.Printf(Logger::RecType::Info, "WiFiJoinApTask: client disconnected");
             state = State::WatchForClient;
@@ -441,7 +428,6 @@ void WiFiJoinApTask::loop()
             if (!_isInSleepState)
             {
                 _isInSleepState = true;
-                matrixTask.PutString("");
             }
         }
         break;

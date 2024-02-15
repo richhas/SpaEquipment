@@ -2,6 +2,9 @@
 
 #include "SpaHeaterCntl.hpp"
 
+static_assert(configTOTAL_HEAP_SIZE == 0x1400, "freeRTOS heap is not the correct size");
+// See: C:\Users\richhas.MAXIE\AppData\Local\Arduino15\packages\arduino\hardware\renesas_uno\1.0.5\variants\UNO*\defines.txt
+
 // Tasks to add:
 //    Not WiFi dependent:
 //      DiagLog store and fwd
@@ -11,14 +14,11 @@
 //      - Change log prints to use correct log levels
 //      - Add a log level into system config
 //      - Config:
-//          - Make records CRC-checked
 //          - Use end of 8K for circular log buffer
 //      - NetworkTask - make independent of WiFi. Support ethernet and WiFi
 //      - Make dual targeted - UNO R4 Minima (Ethernet) and UNO R4 Maxie (WiFi)
 //         - ARDUINO_UNOR4_WIFI vs ARDUINO_UNOR4_MINIMA
 //      - Make libraries??
-//      - Consider replacing CriticalSection blks with "synchronized" blocks
-//      - Add some perf timing to main
 //
 
 #if !defined(ARDUINO_UNOR4_WIFI)
@@ -94,13 +94,23 @@ void TelnetConsole::loop()
     {
     case State::StartServer:
     {
-        if (network.IsAvailable())
+        static Timer timer;
+        if (state.IsFirstTime())
         {
-            _client = move(NetworkTask::available(_server));
-            if (_client.get() != nullptr)
+            timer.SetAlarm(1000);
+        }
+
+        if (timer.IsAlarmed())
+        {
+            timer.SetAlarm(1000);
+            if (network.IsAvailable())
             {
-                state.ChangeState(State::Connected);
-                return;
+                _client = move(NetworkTask::available(_server));
+                if (_client.get() != nullptr)
+                {
+                    state.ChangeState(State::Connected);
+                    return;
+                }
             }
         }
     }
@@ -137,18 +147,6 @@ void TelnetConsole::loop()
 
 //** Main admin console commands
 // Command line processors for main menu
-CmdLine::Status SetLedDisplayProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
-{
-    if (Argc != 2)
-    {
-        return CmdLine::Status::TooManyParameters;
-    }
-
-    matrixTask.PutString((char *)(Args[1]));
-
-    return CmdLine::Status::Ok;
-}
-
 CmdLine::Status SetRTCDateTime(Stream &CmdStream, int Argc, char const **Args, void *Context)
 {
     if (Argc != 3)
@@ -270,7 +268,6 @@ CmdLine::ProcessorDesc consoleTaskCmdProcessors[] =
 {
     {SetRTCDateTime, "setTime", "Set the RTC date and time. Format: 'YYYY-MM-DD HH:MM:SS'"},
     {ShowRTCDateTime, "showTime", "Show the current RTC date and time."},
-    {SetLedDisplayProcessor, "ledDisplay", "Put tring to Led Matrix"},
     {RebootProcessor, "reboot", "Reboot the R4"},
     {BoilerProcessor, "boiler", "Boiler related menu"},
     {HaMQTTProcessor, "mqtt", "MQTT/HA related menu"},
@@ -310,14 +307,11 @@ void setup()
 
     //    modem.debug(Serial, 0);
 
-    matrixTask.Setup();
-    matrixTask.PutString("S00");
-
     auto const status = xTaskCreate
     (
         MainThreadEntry,
         static_cast<const char*>("Loop Thread"),
-        (2048 + 500) / 4,           /* usStackDepth in words */
+        (1024 + 500) / 4,           /* usStackDepth in words */
         nullptr,                    /* pvParameters */
         1,                          /* uxPriority */
         &mainThread                 /* pxCreatedTask */
@@ -329,7 +323,6 @@ void setup()
         $FailFast();
     }
 
-    matrixTask.PutString("S01");
     vTaskStartScheduler();
     $FailFast();
 }
@@ -356,7 +349,6 @@ void MainThreadEntry(void *pvParameters)
 void FinishStart()
 {
     // Get out stateless boot time from the config record and increment it; given to the logger
-    matrixTask.PutString("S02");
     bootRecord.Begin();
     if (!bootRecord.IsValid())
     {
@@ -375,15 +367,12 @@ void FinishStart()
         $Assert(bootRecord.IsValid());
     }
 
-    matrixTask.PutString("S03");
     logger.Begin(bootRecord.GetRecord().BootCount);
     // logger.SetFilter(Logger::RecType::Progress);         // TODO: Walk through and set the RecType for things that are progress info to be Progress
 
     //** Logger used for all output from this point on
-    matrixTask.PutString("S04");
     tempSensorsConfig.Begin();
 
-    matrixTask.PutString("S05");
     boilerConfig.Begin();
     if (boilerConfig.IsValid() == false)
     {
@@ -395,7 +384,6 @@ void FinishStart()
         $Assert(boilerConfig.IsValid());
     }
 
-    matrixTask.PutString("S06");
     auto const status = xTaskCreate(
         BoilerControllerTask::BoilerControllerThreadEntry,
         static_cast<const char *>("Loop Thread"),
@@ -411,28 +399,21 @@ void FinishStart()
         $FailFast();
     }
 
-    matrixTask.PutString("S07");
     consoleTask.Setup();
     consoleTask.begin(consoleTaskCmdProcessors, LengthOfConsoleTaskCmdProcessors, "Main");
-    matrixTask.PutString("S08");
-
-    matrixTask.PutString("S09");
     network.Setup();
-    matrixTask.PutString("S10");
     network.Begin();
-    matrixTask.PutString("S11");
     haMqttClient.Setup();
-    matrixTask.PutString("S12");
     telnetConsole.Setup();
-    matrixTask.PutString("S13");
-
-    // Start the main loop PerfCounter and clk
 }
 
+//byte padBuffer[1900 + 3072];     // with rtos heap of 5K (configTOTAL_HEAP_SIZE == 0x1400)
 
 //** foreground thread loop
 void loop() 
 {
+    //memset(padBuffer, 0, sizeof(padBuffer));
+    //padBuffer;
     consoleTask.Loop();
     telnetConsole.Loop();
 

@@ -122,7 +122,8 @@ void BoilerControllerTask::loop()
     if (targetTemps._setPoint != tempState._setPoint ||
         targetTemps._hysteresis != tempState._hysteresis)
     {
-        { CriticalSection cs;
+        synchronized
+        {
             _tempState._sequence++; // Increment the sequence number so foreground task
                                     // knows the target temp has changed
             _tempState._setPoint = targetTemps._setPoint;
@@ -143,8 +144,8 @@ void BoilerControllerTask::loop()
             // The heater state has changed - update our local copy
             tempState._heaterOn = digitalRead(_heaterControlPin);
 
+            synchronized
             {
-                CriticalSection cs;
                 // Update the temp state for the foreground task's access
                 this->_tempState._sequence++; // Increment the sequence number so foreground task knows the heater state has changed
                 this->_tempState._heaterOn = tempState._heaterOn;
@@ -246,7 +247,8 @@ void BoilerControllerTask::loop()
 
                         // Compute the duration of the enumeration cycle and update the shared stats
                         uint32_t durationInMS = millis() - startOfEnumTimeInMS; // Compute the duration of the enumeration cycle
-                        { CriticalSection cs;
+                        synchronized
+                        {
                             _oneWireStats._totalEnumCount++;
                             _oneWireStats._totalEnumTimeInMS += durationInMS;
                             if (durationInMS > _oneWireStats._maxEnumTimeInMS)
@@ -323,16 +325,17 @@ void BoilerControllerTask::loop()
 
                     // Check for any changes in the temps or heater status and update the shared state if necessary
                     if (ambiantTemp != tempState._ambiantTemp || boilerInTemp != tempState._boilerInTemp || boilerOutTemp != tempState._boilerOutTemp)
-                    { CriticalSection cs;
-                        // The temps have changed - update the shared state for the foreground task's access
-                        _tempState._sequence++; // Increment the sequence number so foreground task knows the temps have changed
-                        _tempState._ambiantTemp = ambiantTemp;
-                        _tempState._boilerInTemp = boilerInTemp;
-                        _tempState._boilerOutTemp = boilerOutTemp;
-                        _tempState._setPoint = targetTemps._setPoint;
-                        _tempState._hysteresis = targetTemps._hysteresis;
-                        _tempState._heaterOn = digitalRead(_heaterControlPin);
-                    }
+                        synchronized
+                        {
+                            // The temps have changed - update the shared state for the foreground task's access
+                            _tempState._sequence++; // Increment the sequence number so foreground task knows the temps have changed
+                            _tempState._ambiantTemp = ambiantTemp;
+                            _tempState._boilerInTemp = boilerInTemp;
+                            _tempState._boilerOutTemp = boilerOutTemp;
+                            _tempState._setPoint = targetTemps._setPoint;
+                            _tempState._hysteresis = targetTemps._hysteresis;
+                            _tempState._heaterOn = digitalRead(_heaterControlPin);
+                        }
 
                     // Keep our local copy of the temps up to date
                     tempState._ambiantTemp = ambiantTemp;
@@ -509,7 +512,8 @@ bool BoilerControllerTask::OneWireCoProcEnumLoop(array<DiscoveredTempSensor, 5>*
                     else
                     {
                         // Buffer overflow - start over
-                        { CriticalSection cs;
+                        synchronized
+                        {
                             _oneWireStats._totalBufferOverflowErrors++;
                         }
                         state = State::StartCycle;
@@ -555,7 +559,8 @@ bool BoilerControllerTask::OneWireCoProcEnumLoop(array<DiscoveredTempSensor, 5>*
                         if ((bufferIndex < 24)  || (buffer[16] != ';') || (buffer[19] != ';') || (buffer[22] != ';'))
                         {
                             // Invalid format - start over
-                            { CriticalSection cs;
+                            synchronized
+                            {
                                 _oneWireStats._totalFormatErrors++;
                             }
                             state = State::StartCycle;
@@ -579,7 +584,8 @@ bool BoilerControllerTask::OneWireCoProcEnumLoop(array<DiscoveredTempSensor, 5>*
                         else
                         {
                             // No more room for another sensor - start over
-                            { CriticalSection cs;
+                            synchronized
+                            {
                                 _oneWireStats._totalSensorCountOverflowErrors++;
                             }
                             state = State::StartCycle;
@@ -597,7 +603,8 @@ bool BoilerControllerTask::OneWireCoProcEnumLoop(array<DiscoveredTempSensor, 5>*
                     else
                     {
                         // Buffer overflow - start over
-                        { CriticalSection cs;
+                        synchronized
+                        {
                             _oneWireStats._totalBufferOverflowErrors++;
                         }
                         state = State::StartCycle;
@@ -621,7 +628,7 @@ bool BoilerControllerTask::OneWireCoProcEnumLoop(array<DiscoveredTempSensor, 5>*
 //** Getters and setters for the various parameters - these methods are thread safe
 BoilerControllerTask::FaultReason BoilerControllerTask::GetFaultReason()
 {
-    CriticalSection cs;
+    synchronized
     {
         return _faultReason;
     }
@@ -629,7 +636,7 @@ BoilerControllerTask::FaultReason BoilerControllerTask::GetFaultReason()
 
 void BoilerControllerTask::SafeSetFaultReason(BoilerControllerTask::FaultReason Reason)
 {
-    CriticalSection cs;
+    synchronized
     {
         _faultReason = Reason;
     }
@@ -637,7 +644,7 @@ void BoilerControllerTask::SafeSetFaultReason(BoilerControllerTask::FaultReason 
 
 BoilerControllerTask::StateMachineState BoilerControllerTask::GetStateMachineState()
 {
-    CriticalSection cs;
+    synchronized
     {
         return _state;
     }
@@ -645,7 +652,7 @@ BoilerControllerTask::StateMachineState BoilerControllerTask::GetStateMachineSta
 
 void BoilerControllerTask::SafeSetStateMachineState(BoilerControllerTask::StateMachineState State)
 {
-    CriticalSection cs;
+    synchronized
     {
         _state = State;
     }
@@ -653,7 +660,7 @@ void BoilerControllerTask::SafeSetStateMachineState(BoilerControllerTask::StateM
 
 uint32_t BoilerControllerTask::GetHeaterStateSequence()
 {
-    CriticalSection cs;
+    synchronized
     {
         return _tempState._sequence;
     }
@@ -661,7 +668,7 @@ uint32_t BoilerControllerTask::GetHeaterStateSequence()
 
 void BoilerControllerTask::GetTempertureState(TempertureState& State)
 {
-    CriticalSection cs;
+    synchronized
     {
         State = _tempState;
     }
@@ -669,14 +676,15 @@ void BoilerControllerTask::GetTempertureState(TempertureState& State)
 
 void BoilerControllerTask::GetOneWireBusStats(OneWireBusStats& Stats)
 {
-    { CriticalSection cs;
+    synchronized
+    {
         Stats = _oneWireStats;
     }
 }
 
 void BoilerControllerTask::SnapshotTempState(TempertureState &State)
 {
-    CriticalSection cs;
+    synchronized
     {
         State = _tempState;
     }
@@ -684,7 +692,7 @@ void BoilerControllerTask::SnapshotTempState(TempertureState &State)
 
 void BoilerControllerTask::SetTempSensorIds(const TempSensorIds& SensorIds)
 {
-    CriticalSection cs;
+    synchronized
     {
         _sensorIds = SensorIds;
     }
@@ -692,7 +700,7 @@ void BoilerControllerTask::SetTempSensorIds(const TempSensorIds& SensorIds)
 
 void BoilerControllerTask::SnapshotTempSensors(TempSensorIds& SensorIds)
 {
-    CriticalSection cs;
+    synchronized
     {
         SensorIds = _sensorIds;
     }
@@ -700,7 +708,7 @@ void BoilerControllerTask::SnapshotTempSensors(TempSensorIds& SensorIds)
 
 void BoilerControllerTask::SetTargetTemps(const TargetTemps& Temps)
 {
-    CriticalSection cs;
+    synchronized
     {
         _targetTemps = Temps;
     }
@@ -708,7 +716,7 @@ void BoilerControllerTask::SetTargetTemps(const TargetTemps& Temps)
 
 void BoilerControllerTask::SnapshotTargetTemps(TargetTemps& Temps)
 {
-    CriticalSection cs;
+    synchronized
     {
         Temps = _targetTemps;
     }
@@ -716,7 +724,7 @@ void BoilerControllerTask::SnapshotTargetTemps(TargetTemps& Temps)
 
 BoilerControllerTask::Command BoilerControllerTask::SnapshotCommand()
 {
-    CriticalSection cs;
+    synchronized
     {
         return _command;
     }
@@ -724,15 +732,16 @@ BoilerControllerTask::Command BoilerControllerTask::SnapshotCommand()
 
 void BoilerControllerTask::SafeClearCommand()
 {
-    CriticalSection cs;
+    synchronized
     {
         _command = Command::Idle;
     }
 }
 
 void BoilerControllerTask::ClearOneWireBusStats() 
-{ 
-    { CriticalSection cs; 
+{
+    synchronized
+    {
         _oneWireStats = 
         { 
             ._totalEnumCount = 0, 
@@ -765,7 +774,7 @@ void BoilerControllerTask::SetAllBoilerParametersFromConfig()
 // BoilerMode set/get
 BoilerControllerTask::BoilerMode BoilerControllerTask::GetMode()
 {
-    CriticalSection cs;
+    synchronized
     {
         return _boilerMode;
     }
@@ -773,7 +782,7 @@ BoilerControllerTask::BoilerMode BoilerControllerTask::GetMode()
 
 void BoilerControllerTask::SetMode(BoilerControllerTask::BoilerMode Mode)
 {
-    CriticalSection cs;
+    synchronized
     {
         _boilerMode = Mode;
     }
@@ -782,7 +791,7 @@ void BoilerControllerTask::SetMode(BoilerControllerTask::BoilerMode Mode)
 //** Forground task command interface methods - these methods are thread safe
 bool BoilerControllerTask::IsBusy()         // Returns true if the task is busy processing a command
 {
-    CriticalSection cs;
+    synchronized
     {
         return _command != Command::Idle;
     }
@@ -790,7 +799,7 @@ bool BoilerControllerTask::IsBusy()         // Returns true if the task is busy 
 
 void BoilerControllerTask::Start()          // Starts the heater - only valid if the task is in the Halted state
 {
-    CriticalSection cs;
+    synchronized
     {
         $Assert(_command == Command::Idle);
         $Assert(_state == StateMachineState::Halted);
@@ -800,7 +809,7 @@ void BoilerControllerTask::Start()          // Starts the heater - only valid if
 
 void BoilerControllerTask::StartIfSafe()    // Starts the heater if it is safe to do so - only valid if the task is in the Halted state
 {
-    CriticalSection cs;
+    synchronized
     {
         if ((_command == Command::Idle) && (_state == StateMachineState::Halted))
         {
@@ -811,7 +820,7 @@ void BoilerControllerTask::StartIfSafe()    // Starts the heater if it is safe t
 
 void BoilerControllerTask::Stop()           // Stops the heater - only valid if the task is in the Running state
 {
-    CriticalSection cs;
+    synchronized
     {
         $Assert(_command == Command::Idle);
         $Assert(_state == StateMachineState::Running);
@@ -821,7 +830,7 @@ void BoilerControllerTask::Stop()           // Stops the heater - only valid if 
 
 void BoilerControllerTask::StopIfSafe()     // Stops the heater if it is safe to do so - only valid if the task is in the Running state
 {
-    CriticalSection cs;
+    synchronized
     {
         if ((_command == Command::Idle) && (_state == StateMachineState::Running))
         {
@@ -832,7 +841,7 @@ void BoilerControllerTask::StopIfSafe()     // Stops the heater if it is safe to
 
 void BoilerControllerTask::Reset()          // Resets the heater - only valid if the task is in the Faulted state
 {
-    CriticalSection cs;
+    synchronized
     {
         $Assert(_command == Command::Idle);
         $Assert(_state == StateMachineState::Faulted);
@@ -842,7 +851,7 @@ void BoilerControllerTask::Reset()          // Resets the heater - only valid if
 
 void BoilerControllerTask::ResetIfSafe()    // Resets the heater if it is safe to do so - only valid if the task is in the Faulted state
 {
-    CriticalSection cs;
+    synchronized
     {
         if ((_command == Command::Idle) && (_state == StateMachineState::Faulted))
         {

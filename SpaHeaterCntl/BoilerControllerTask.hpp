@@ -10,27 +10,27 @@
 /*
  * The BoilerControllerTask class is part of the Maxie HA system 2024 developed by TinyBus.
  * It controls a spa heater and communicates with temperature sensors via a one-wire bus.
- * 
+ *
  * The class provides methods for reading temperature values from these sensors.
  * It also includes methods for setting and getting the target temperatures,
  * starting, stopping, and resetting the heater.
- * 
+ *
  * Additionally, it provides methods for snapshotting the current state of temperature sensors,
  * target temperatures, and command, which can be used by the foreground task for monitoring and control purposes.
- * 
+ *
  * The BoilerControllerThreadEntry function is the entry point for the boiler controller task.
  * It first calls the setup method of the boilerControllerTask object, then enters an infinite loop
  * where it repeatedly calls the loop method of the boilerControllerTask object, waits for 1 second,
  * and toggles the state of the _heaterActiveLedPin.
- * 
+ *
  * The BoilerControllerTask class has a constructor that initializes the _ds member variable with _oneWireBusPin,
  * and a destructor that calls the $FailFast function, presumably to halt the system in case of a critical failure.
- * 
+ *
  * The ReadTemp method reads the temperature from a sensor with a given ID. If the sensor cannot be selected
  * (presumably because it's not connected or not responding), it sets a fault reason to TempSensorNotFound and returns false.
  * Otherwise, it reads the temperature from the sensor and returns true.
- * 
- * The GetFaultReason method returns the current fault reason. It uses a CriticalSection object to ensure thread safety
+ *
+ * The GetFaultReason method returns the current fault reason. It uses a synchronized object to ensure thread safety
  * when accessing shared data. The body of this method is not shown in the provided code.
  */
 class BoilerControllerTask final : public ArduinoTask

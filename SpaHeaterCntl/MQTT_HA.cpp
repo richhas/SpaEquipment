@@ -709,8 +709,20 @@ void HA_MqttClient::loop()
             return false;
         }
 
-        // Write the expanded /config message body JSON string directly into the message stream
-        size_t expandedSize = ExpandJson(MqttClient, ConfigJsonPrototype, BaseTopic, DeviceName, EntityName, commonAvailTopic);
+        size_t expandedSize;
+        {
+            //* We use the shared buffer to build the full /config JSON string and start the message
+            auto handle = sharedPrintfBuffer.GetHandle(); // take lock on shared buffer
+            char *buffer = (char *)handle.GetBuffer();
+            BufferPrinter printer(buffer, handle.GetSize()); // create a buffer printer into the shared buffer
+
+            size_t size = ExpandJson(printer, ConfigJsonPrototype, BaseTopic, DeviceName, EntityName, commonAvailTopic); // Append the /config topic suffix to the base topic
+            $Assert(size < sharedPrintfBuffer.GetSize());
+
+            // Write the expanded /config message body JSON string directly into the message stream
+            expandedSize = MqttClient.write((const uint8_t *)buffer, size);
+        }
+
         if (expandedSize != ExpandedMsgSize)
         {
             logger.Printf(Logger::RecType::Warning, "MQTT: Expanded size of /config message body JSON string is incorrect");
@@ -1537,6 +1549,13 @@ void HA_MqttClient::loop()
         //  for any changed properties
         case State::Connected:
         {
+            static Timer nextConnextCheckTimer;
+
+            if (state.IsFirstTime())
+            {
+                nextConnextCheckTimer.SetAlarm(1000);
+            }
+
             // Check for lost network connection and restart SM if lost
             if (!network.IsAvailable())
             {
@@ -1545,14 +1564,19 @@ void HA_MqttClient::loop()
                 return;
             }
 
-            // Check for lost connection to MQTT Broker and restart SM if lost
-            if (!mqttClient.connected())
+            if (nextConnextCheckTimer.IsAlarmed())
             {
-                logger.Printf(Logger::RecType::Warning, "MQTT: Lost connection to Broker - restarting");
-                state.ChangeState(State::WaitForNetConnection);
-                return;
+                nextConnextCheckTimer.SetAlarm(1000);
+            
+                // Check for lost connection to MQTT Broker and restart SM if lost
+                if (!mqttClient.connected())
+                {
+                    logger.Printf(Logger::RecType::Warning, "MQTT: Lost connection to Broker - restarting");
+                    state.ChangeState(State::WaitForNetConnection);
+                    return;
+                }
             }
-
+            
             // Check for HAIntgAvailCameTrue and restart SM if true
             if (HAIntgAvailCameTrue)
             {
