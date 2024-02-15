@@ -21,8 +21,6 @@ public:
 
     void Begin();
 
-    virtual void setup() override;
-    virtual void loop() override;
     bool IsAvailable();
 
     static shared_ptr<Client> CreateClient();
@@ -34,6 +32,10 @@ public:
     static void end(shared_ptr<Server> Server);
 
     void disconnect();
+
+protected:
+    virtual void setup() override;
+    virtual void loop() override;
 
 private: 
     static String &AppendHEX(uint8_t Byte, String &AddTo);

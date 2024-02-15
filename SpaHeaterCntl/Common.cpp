@@ -89,3 +89,29 @@ char const *const UInt64ToString(uint64_t Value)
 
     return &buffer[i + 1]; // Adjust the pointer to skip any unused positions
 }
+
+// system us resolution clock
+USecClock uSecSystemClock;
+
+// Percounters functions
+void PerfCounter::Print(Stream &ToStream, int IndentBy)
+{
+    for (int i = 0; i < IndentBy; i++) ToStream.print(" ");
+    ToStream.print("Avg: ");
+    ToStream.print(UInt64ToString(_totalTimeInUSecs / _totalSamples));
+    ToStream.println("us");
+
+    for (int i = 0; i < IndentBy; i++) ToStream.print(" ");
+    ToStream.print("Max: ");
+    ToStream.print(UInt64ToString(_maxTimeInUSecs));
+    ToStream.println("us");
+
+    for (int i = 0; i < IndentBy; i++) ToStream.print(" ");
+    ToStream.print("Min: ");
+    ToStream.print(UInt64ToString(_minTimeInUSecs));
+    ToStream.println("us");
+
+    for (int i = 0; i < IndentBy; i++) ToStream.print(" ");
+    ToStream.print("Samples: ");
+    ToStream.println(UInt64ToString(_totalSamples));
+}

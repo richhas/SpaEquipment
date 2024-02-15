@@ -25,12 +25,115 @@
 #error "This is the wrong board for this code"
 #endif
 
-//* Percounters for the system
-USecClock   uSecClock;
-PerfCounter perfCounterForMainLoop(uSecClock);
+//** Telnet Admin Console Task definitions - hosts a TelnetServer and a ConsoleTask
+class TelnetConsole final : public ArduinoTask
+{
+private:
+    ConsoleTask _console;
+    shared_ptr<Server> _server;
+    shared_ptr<Client> _client;
+
+public:
+    TelnetConsole();
+    ~TelnetConsole();
+
+protected:
+    virtual void setup();
+    virtual void loop();
+};
+
+//** System Instance (config) Record definition - In persistant storage
+#pragma pack(push, 1)
+struct BootRecord
+{
+    uint32_t BootCount;    // Number of times the system has been booted 
+};
+#pragma pack(pop)
 
 
+//*** Global state objects
+TaskHandle_t    mainThread;
+TaskHandle_t    backgroundThread;
+TelnetConsole   telnetConsole;
+FlashStore<BootRecord, PS_BootRecordBase> bootRecord;
+    static_assert(PS_BootRecordBlkSize >= sizeof(FlashStore<BootRecord, PS_BootRecordBase>));
 
+//* Percounter for the overall foreground system loop
+PerfCounter perfCounterForMainLoop(uSecSystemClock);
+
+
+//* Telnet Admin Console Task implementation
+TelnetConsole::TelnetConsole()
+    : _server(nullptr),
+      _client(nullptr)
+{
+}
+
+TelnetConsole::~TelnetConsole()
+{
+}
+
+void TelnetConsole::setup()
+{
+    logger.Printf(Logger::RecType::Progress, "TelnetConsole: Starting - listening on port 23...");
+    _server = move(NetworkTask::CreateServer(23));
+    $Assert(_server.get() != nullptr);
+    _server->begin();
+}
+
+void TelnetConsole::loop()
+{
+    enum class State
+    {
+        StartServer,
+        Connected,
+    };
+    static StateMachineState<State> state(State::StartServer);
+
+    switch ((State)state)
+    {
+    case State::StartServer:
+    {
+        if (network.IsAvailable())
+        {
+            _client = move(NetworkTask::available(_server));
+            if (_client.get() != nullptr)
+            {
+                state.ChangeState(State::Connected);
+                return;
+            }
+        }
+    }
+    break;
+
+    case State::Connected:
+    {
+        if (state.IsFirstTime())
+        {
+            logger.Printf(Logger::RecType::Info, "TelnetConsole: Client connected");
+            _console.SetStream(*_client);
+            _console.Setup();
+            _console.begin(consoleTaskCmdProcessors, LengthOfConsoleTaskCmdProcessors, "Main");
+        }
+
+        if (_client->connected())
+        {
+            _console.Loop();
+        }
+        else
+        {
+            logger.Printf(Logger::RecType::Info, "TelnetConsole: Client disconnected");
+            _client->stop();
+            _client = nullptr;
+            state.ChangeState(State::StartServer);
+        }
+    }
+    break;
+
+    default:
+        $FailFast();
+    }
+}
 
 //** Main admin console commands
 // Command line processors for main menu
@@ -131,12 +234,23 @@ CmdLine::Status StartNetworkCmdProcessor(Stream &CmdStream, int Argc, char const
 
 CmdLine::Status ShowPerfCounters(Stream &CmdStream, int Argc, char const **Args, void *Context)
 {
-    printf(CmdStream, "Perf Counter for main loop:\n");
-    printf(CmdStream, "  Total Samples: %s \n", UInt64ToString(perfCounterForMainLoop.TotalSamples()));
-    printf(CmdStream, "  Total uSecs: %s\n", UInt64ToString(perfCounterForMainLoop.TotalTimeInUSecs()));
-    printf(CmdStream, "  Avg Duration: %s uSec\n", UInt64ToString(perfCounterForMainLoop.TotalTimeInUSecs() / perfCounterForMainLoop.TotalSamples()));
-    printf(CmdStream, "  Max Duration: %s uSec\n", UInt64ToString(perfCounterForMainLoop.MaxTimeInUSecs()));
-    printf(CmdStream, "  Min Duration: %s uSec\n", UInt64ToString(perfCounterForMainLoop.MinTimeInUSecs()));
+    printf(CmdStream, "Perf Counter: Overall (main) loop:\n");
+    perfCounterForMainLoop.Print(CmdStream, 4);
+
+    printf(CmdStream, "Perf Counter: Network loop:\n");
+    network.GetPerfCounter().Print(CmdStream, 4);
+
+    printf(CmdStream, "Perf Counter: MQTT loop:\n");
+    haMqttClient.GetPerfCounter().Print(CmdStream, 4);
+
+    printf(CmdStream, "Perf Counter: Console loop:\n");
+    consoleTask.GetPerfCounter().Print(CmdStream, 4);
+
+    printf(CmdStream, "Perf Counter: Telnet Console loop:\n");
+    telnetConsole.GetPerfCounter().Print(CmdStream, 4);
+
+    printf(CmdStream, "Perf Counter: Boiler Background Task loop:\n");
+    boilerControllerTask.GetPerfCounter().Print(CmdStream, 4);
 
     return CmdLine::Status::Ok;
 }
@@ -144,121 +258,28 @@ CmdLine::Status ShowPerfCounters(Stream &CmdStream, int Argc, char const **Args,
 CmdLine::Status ResetPerfCounters(Stream &CmdStream, int Argc, char const **Args, void *Context)
 {
     perfCounterForMainLoop.Reset();
+    network.GetPerfCounter().Reset();
+    haMqttClient.GetPerfCounter().Reset();
+    consoleTask.GetPerfCounter().Reset();
+    telnetConsole.GetPerfCounter().Reset();
+    boilerControllerTask.GetPerfCounter().Reset();
     return CmdLine::Status::Ok;
 }
 
 CmdLine::ProcessorDesc consoleTaskCmdProcessors[] =
-    {
-        {SetRTCDateTime, "setTime", "Set the RTC date and time. Format: 'YYYY-MM-DD HH:MM:SS'"},
-        {ShowRTCDateTime, "showTime", "Show the current RTC date and time."},
-        {SetLedDisplayProcessor, "ledDisplay", "Put tring to Led Matrix"},
-        {RebootProcessor, "reboot", "Reboot the R4"},
-        {BoilerProcessor, "boiler", "Boiler related menu"},
-        {HaMQTTProcessor, "mqtt", "MQTT/HA related menu"},
-        {StartNetworkCmdProcessor, "network", "Network related menu"},
-        {ShowPerfCounters, "perf", "Show performance counters"},
-        {ResetPerfCounters, "perfReset", "Reset performance counters"},
+{
+    {SetRTCDateTime, "setTime", "Set the RTC date and time. Format: 'YYYY-MM-DD HH:MM:SS'"},
+    {ShowRTCDateTime, "showTime", "Show the current RTC date and time."},
+    {SetLedDisplayProcessor, "ledDisplay", "Put tring to Led Matrix"},
+    {RebootProcessor, "reboot", "Reboot the R4"},
+    {BoilerProcessor, "boiler", "Boiler related menu"},
+    {HaMQTTProcessor, "mqtt", "MQTT/HA related menu"},
+    {StartNetworkCmdProcessor, "network", "Network related menu"},
+    {ShowPerfCounters, "perf", "Show performance counters"},
+    {ResetPerfCounters, "perfReset", "Reset performance counters"},
 };
 int const LengthOfConsoleTaskCmdProcessors = sizeof(consoleTaskCmdProcessors) / sizeof(consoleTaskCmdProcessors[0]);
 
-
-//** Telnet Admin Console Task definitions - hosts a TelnetServer and a ConsoleTask
-class TelnetConsole final : public ArduinoTask
-{
-private:
-    ConsoleTask _console;
-    shared_ptr<Server> _server;
-    shared_ptr<Client> _client;
-
-public:
-    TelnetConsole();
-    ~TelnetConsole();
-    virtual void setup();
-    virtual void loop();
-};
-
-
-//* Telnet Admin Console Task implementation
-TelnetConsole::TelnetConsole()
-    : _server(nullptr),
-      _client(nullptr)
-{
-}
-
-TelnetConsole::~TelnetConsole()
-{
-}
-
-void TelnetConsole::setup()
-{
-    logger.Printf(Logger::RecType::Progress, "TelnetConsole: Starting - listening on port 23...");
-    _server = move(NetworkTask::CreateServer(23));
-    $Assert(_server.get() != nullptr);
-    _server->begin();
-}
-
-void TelnetConsole::loop()
-{
-    enum class State
-    {
-        StartServer,
-        Connected,
-    };
-    static StateMachineState<State> state(State::StartServer);
-
-    switch ((State)state)
-    {
-    case State::StartServer:
-    {
-        if (network.IsAvailable())
-        {
-            _client = move(NetworkTask::available(_server));
-            if (_client.get() != nullptr)
-            {
-                state.ChangeState(State::Connected);
-                return;
-            }
-        }
-    }
-    break;
-
-    case State::Connected:
-    {
-        if (state.IsFirstTime())
-        {
-            logger.Printf(Logger::RecType::Info, "TelnetConsole: Client connected");
-            _console.SetStream(*_client);
-            _console.setup();
-            _console.begin(consoleTaskCmdProcessors, LengthOfConsoleTaskCmdProcessors, "Main");
-        }
-
-        if (_client->connected())
-        {
-            _console.loop();
-        }
-        else
-        {
-            logger.Printf(Logger::RecType::Info, "TelnetConsole: Client disconnected");
-            _client->stop();
-            _client = nullptr;
-            state.ChangeState(State::StartServer);
-        }
-    }
-    break;
-
-    default:
-        $FailFast();
-    }
-}
-
-
-//** System Instance (config) Record - In persistant storage
-#pragma pack(push, 1)
-struct BootRecord
-{
-    uint32_t BootCount;    // Number of times the system has been booted 
-};
-#pragma pack(pop)
 
 
 
@@ -266,12 +287,6 @@ struct BootRecord
 //******************************************************************************************
 //** Main logic for entire system
 //******************************************************************************************
-TaskHandle_t    mainThread;
-TaskHandle_t    backgroundThread;
-TelnetConsole   telnetConsole;
-FlashStore<BootRecord, PS_BootRecordBase> bootRecord;
-    static_assert(PS_BootRecordBlkSize >= sizeof(FlashStore<BootRecord, PS_BootRecordBase>));
-
 
 //** POR Entry point
 void setup()
@@ -286,12 +301,16 @@ void setup()
     RTC.getTime(now);
     RTC.setTimeIfNotRunning(now);
 
+    // Start our uSecSystemClock
+    uSecSystemClock.Reset();
+
     Serial.begin(250000);
     delay(1000);
 
+
     //    modem.debug(Serial, 0);
 
-    matrixTask.setup();
+    matrixTask.Setup();
     matrixTask.PutString("S00");
 
     auto const status = xTaskCreate
@@ -321,9 +340,15 @@ void MainThreadEntry(void *pvParameters)
 
     FinishStart();
 
+    // Start the main loop PerfCounter
+    perfCounterForMainLoop.Reset();
+
     while (true)
     {
+        perfCounterForMainLoop.Start();     // Start the perf counter sample for the overall main loop
         loop();
+        perfCounterForMainLoop.Stop();    // Stop the perf counter and Accumulate the sample
+
         taskYIELD();
     }
 }
@@ -387,39 +412,29 @@ void FinishStart()
     }
 
     matrixTask.PutString("S07");
-    consoleTask.setup();
+    consoleTask.Setup();
     consoleTask.begin(consoleTaskCmdProcessors, LengthOfConsoleTaskCmdProcessors, "Main");
     matrixTask.PutString("S08");
 
     matrixTask.PutString("S09");
-    network.setup();
+    network.Setup();
     matrixTask.PutString("S10");
     network.Begin();
     matrixTask.PutString("S11");
-    haMqttClient.setup();
+    haMqttClient.Setup();
     matrixTask.PutString("S12");
-    telnetConsole.setup();
+    telnetConsole.Setup();
     matrixTask.PutString("S13");
+
+    // Start the main loop PerfCounter and clk
 }
 
 
 //** foreground thread loop
 void loop() 
 {
-    static bool firstTime = true;
-    if (firstTime)
-    {
-        firstTime = false;
-        uSecClock.Reset();
-        perfCounterForMainLoop.Reset();
-    }
-
-
-    perfCounterForMainLoop.Start();
-    //uSecClock.Accumulate();
-
-    consoleTask.loop();
-    telnetConsole.loop();
+    consoleTask.Loop();
+    telnetConsole.Loop();
 
     //* Auto start the Boiler State Machine when we have a valid config for it
     static bool firstHeaterStateMachineStarted = false;
@@ -440,8 +455,6 @@ void loop()
         }
     }
 
-    network.loop();     // give network a chance to do its thing
-    haMqttClient.loop();
-
-    perfCounterForMainLoop.Stop();
+    network.Loop();     // give network a chance to do its thing
+    haMqttClient.Loop();
 }

@@ -21,11 +21,11 @@ public:
     LedMatrixTask() = delete;
     LedMatrixTask(Stream &Output, uint8_t ScrollTimeInMS);
     ~LedMatrixTask();
+    void PutString(char *Text);
 
+protected:
     virtual void setup() override;
     virtual void loop() override;
-
-    void PutString(char *Text);
 };
 
 //** Cross module references

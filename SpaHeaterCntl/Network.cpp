@@ -230,7 +230,7 @@ bool NetworkTask::IsAvailable()
 
 void NetworkTask::setup()
 {
-    wifiJoinApTask.setup();
+    wifiJoinApTask.Setup();
 }
 
 void NetworkTask::loop()
@@ -249,7 +249,7 @@ void NetworkTask::loop()
         //* Wait for the WiFiJoinApTask to complete and get the network configuration
         case State::WaitForConfig:
         {
-            wifiJoinApTask.loop();
+            wifiJoinApTask.Loop();
 
             if (state.IsFirstTime())
             {

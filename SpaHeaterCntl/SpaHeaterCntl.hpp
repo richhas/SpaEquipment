@@ -69,6 +69,7 @@ constexpr float $FDiffToC(float F)
 
 
 //** Cross module references
+extern USecClock uSecSystemClock;
 extern void SetAllBoilerParametersFromConfig();
 extern CmdLine::ProcessorDesc consoleTaskCmdProcessors[];
 extern int const LengthOfConsoleTaskCmdProcessors;

@@ -10,7 +10,7 @@
 //* MQTT Client Task
 class HA_MqttClient final : public ArduinoTask
 {
-public:
+protected:
     virtual void setup() override final;
     virtual void loop() override final;
 };

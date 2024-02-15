@@ -238,7 +238,11 @@ private:
 class USecClock
 {
 public:
-    __inline uint64_t Now() { return _accumulated; } // usec
+    __inline uint64_t Now()     // in uSecs
+    { 
+        Accumulate();
+        return _accumulated; 
+    }
 
     __inline USecClock()
     {
@@ -278,6 +282,8 @@ private:
     uint32_t _lastAccumulateTimeInUs;
 };
 
+extern USecClock uSecSystemClock;
+
 class PerfCounter
 {
 private:
@@ -306,13 +312,11 @@ public:
 
     __inline void Start()
     {
-        _clock.Accumulate();
         _lastSampleStartInUSecs = _clock.Now();
     }
 
     __inline void Stop()
     {
-        _clock.Accumulate();
         uint64_t now = _clock.Now();
         uint64_t elapsed = now - _lastSampleStartInUSecs;
         _totalSamples++;
@@ -331,14 +335,25 @@ public:
     __inline uint64_t TotalTimeInUSecs() { return _totalTimeInUSecs; }
     __inline uint64_t MaxTimeInUSecs() { return _maxTimeInUSecs; }
     __inline uint64_t MinTimeInUSecs() { return _minTimeInUSecs; }
+
+    void Print(Stream &ToStream, int IndentBy = 0);
 };
 
 //** Generalized Arduino processing task class
 class ArduinoTask
 {
 public:
+    __inline ArduinoTask() : _taskPerfCounter(uSecSystemClock) {}
+    __inline void Setup()    { _taskPerfCounter.Reset(); setup(); }
+    __inline void Loop()     { _taskPerfCounter.Start(); loop(); _taskPerfCounter.Stop(); } 
+    __inline PerfCounter& GetPerfCounter() { return _taskPerfCounter; }
+
+protected:
     virtual void setup() = 0;
     virtual void loop() = 0;
+
+protected:
+    PerfCounter _taskPerfCounter;
 };
 
 

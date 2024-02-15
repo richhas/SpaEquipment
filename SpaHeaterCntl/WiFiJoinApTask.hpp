@@ -50,6 +50,7 @@ public:
     void DumpConfig(Stream &ToStream);
     void SetConfig(const char *SSID, const char *NetPassword, const char *AdminPassword);
 
+protected:
     virtual void setup() override;
     virtual void loop() override;
 

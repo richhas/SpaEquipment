@@ -17,9 +17,7 @@ public:
 
     void SetStream(Stream &StreamToUse); 
 
-    virtual void setup();
     void begin(CmdLine::ProcessorDesc *Descs, int NbrOfDescs, char const *ContextStr = "");
-    virtual void loop();
 
     void Push(CmdLine::ProcessorDesc &Descs, int NbrOfDescs, char const *ContextStr = "");
     void Pop();
@@ -28,6 +26,10 @@ public:
     void EndBoilerConfig();
     void StartBoilerControl();
     void EndBoilerControl();
+
+protected:
+    virtual void setup() override;
+    virtual void loop() override;
 
 private:
     Stream* _stream;

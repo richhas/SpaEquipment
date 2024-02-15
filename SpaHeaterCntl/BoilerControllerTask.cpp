@@ -45,12 +45,12 @@ BoilerControllerTask boilerControllerTask;
 //** BoilerControllerTask freeRTOS task entry function
 void BoilerControllerTask::BoilerControllerThreadEntry(void *pvParameters)
 {
-    boilerControllerTask.setup();
+    boilerControllerTask.Setup();
 
     static Timer ledTimer(1000);
     while (true)
     {
-        boilerControllerTask.loop();
+        boilerControllerTask.Loop();
         vTaskDelay(pdMS_TO_TICKS(50));
 
         if (ledTimer.IsAlarmed())
