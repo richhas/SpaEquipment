@@ -67,7 +67,7 @@ void BoilerControllerTask::BoilerControllerThreadEntry(void *pvParameters)
  */
 void BoilerControllerTask::setup()
 {
-    logger.Printf(Logger::RecType::Info, "*** BoilerControllerTask Thread Active ***\n");
+    logger.Printf(Logger::RecType::Info, "*** BoilerControllerTask Thread Active ***");
 
     pinMode(_heaterControlPin, OUTPUT); // Make sure the heater is turned off to start with
     digitalWrite(_heaterControlPin, false);
@@ -87,7 +87,7 @@ void BoilerControllerTask::setup()
     ClearOneWireBusStats();
 
     // discover the temperature sensors on the one wire bus for use by forground task (e.g. configures the sensors)
-    logger.Printf(Logger::RecType::Info, "BoilerControllerTask: Start bus enumeration\n");
+    logger.Printf(Logger::RecType::Info, "BoilerControllerTask: Start bus enumeration");
     
     array<DiscoveredTempSensor, 5>* results;
     uint8_t resultsSize;
@@ -96,12 +96,12 @@ void BoilerControllerTask::setup()
 
     for (int ix = 0; ix < resultsSize; ix++)
     {
-        logger.Printf(Logger::RecType::Info, "BoilerControllerTask: OneWireCoProcEnumLoop: Sensor ID: %" $PRIX64 "\n", 
+        logger.Printf(Logger::RecType::Info, "BoilerControllerTask: OneWireCoProcEnumLoop: Sensor ID: %" $PRIX64, 
                                              To$PRIX64(results->at(ix)._id));
 
         _sensors.push_back(results->at(ix)._id);
     }
-    logger.Printf(Logger::RecType::Info, "BoilerControllerTask: Start bus enumeration - COMPLETE\n");
+    logger.Printf(Logger::RecType::Info, "BoilerControllerTask: Start bus enumeration - COMPLETE");
 }
 
 
@@ -165,7 +165,7 @@ void BoilerControllerTask::loop()
                 firstTimeInRunningState = true;
                 SafeClearCommand();                       // acknowledge the command
                 SafeSetStateMachineState(StateMachineState::Running); // Go to the Running state
-                logger.Printf(Logger::RecType::Info, "BoilerControllerTask: HeaterState::Halted: Command::Start\n");
+                logger.Printf(Logger::RecType::Info, "BoilerControllerTask: HeaterState::Halted: Command::Start");
             }
         }
         break;
@@ -214,7 +214,7 @@ void BoilerControllerTask::loop()
                 case State::StartCycle:
                 {
                     //printf(Serial, "BoilerControllerTask: Running: StartCycle; Changing to ControlHeater\n");
-                    logger.Printf(Logger::RecType::Info, "BoilerControllerTask: HeaterState::Running:\n");
+                    logger.Printf(Logger::RecType::Info, "BoilerControllerTask: HeaterState::Running:");
 
                     // Start of the Running cycle
                     coEnumTimeoutTimer.SetAlarm(coEnumTimeoutInMS);
@@ -280,7 +280,7 @@ void BoilerControllerTask::loop()
                             else
                             {
                                 // This is a sensor we don't know about - log a warning
-                                logger.Printf(Logger::RecType::Warning, "BoilerControllerTask: OneWireCoProcEnumLoop: Unknown sensor ID: %" $PRIX64 "\n", 
+                                logger.Printf(Logger::RecType::Warning, "BoilerControllerTask: OneWireCoProcEnumLoop: Unknown sensor ID: %" $PRIX64, 
                                              To$PRIX64(results->at(ix)._id));
                             }
                         }

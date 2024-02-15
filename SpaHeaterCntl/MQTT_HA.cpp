@@ -1327,13 +1327,13 @@ void HA_MqttClient::loop()
                         return;
                     }
 
-                    logger.Printf(Logger::RecType::Progress, "MQTT: Waiting for network connection - delay 5 secs");
-                    delayTimer.SetAlarm(5000);          // don't hammer the net
+                    logger.Printf(Logger::RecType::Progress, "MQTT: Waiting for network connection - delay until network is available");
+                    delayTimer.SetAlarm(5000);
                     networkState.ChangeState(NetworkStatus::Disconnected);
                 }
                 break;
 
-                // Network is connected - delay before connecting to broker
+                // Network is connected - delay some before connecting to broker
                 case NetworkStatus::Connected:
                 {
                     if (delayTimer.IsAlarmed())
@@ -1346,7 +1346,7 @@ void HA_MqttClient::loop()
                 // Network is disconnected - delay before retrying net connection
                 case NetworkStatus::Disconnected:
                 {
-                    if (delayTimer.IsAlarmed())
+                    if (network.IsAvailable() && delayTimer.IsAlarmed())
                     {
                         networkState.ChangeState(NetworkStatus::Unknown);
                     }

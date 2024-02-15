@@ -25,6 +25,13 @@
 #error "This is the wrong board for this code"
 #endif
 
+//* Percounters for the system
+USecClock   uSecClock;
+PerfCounter perfCounterForMainLoop(uSecClock);
+
+
+
+
 //** Main admin console commands
 // Command line processors for main menu
 CmdLine::Status SetLedDisplayProcessor(Stream &CmdStream, int Argc, char const **Args, void *Context)
@@ -122,6 +129,24 @@ CmdLine::Status StartNetworkCmdProcessor(Stream &CmdStream, int Argc, char const
     return CmdLine::Status::Ok;
 }
 
+CmdLine::Status ShowPerfCounters(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    printf(CmdStream, "Perf Counter for main loop:\n");
+    printf(CmdStream, "  Total Samples: %s \n", UInt64ToString(perfCounterForMainLoop.TotalSamples()));
+    printf(CmdStream, "  Total uSecs: %s\n", UInt64ToString(perfCounterForMainLoop.TotalTimeInUSecs()));
+    printf(CmdStream, "  Avg Duration: %s uSec\n", UInt64ToString(perfCounterForMainLoop.TotalTimeInUSecs() / perfCounterForMainLoop.TotalSamples()));
+    printf(CmdStream, "  Max Duration: %s uSec\n", UInt64ToString(perfCounterForMainLoop.MaxTimeInUSecs()));
+    printf(CmdStream, "  Min Duration: %s uSec\n", UInt64ToString(perfCounterForMainLoop.MinTimeInUSecs()));
+
+    return CmdLine::Status::Ok;
+}
+
+CmdLine::Status ResetPerfCounters(Stream &CmdStream, int Argc, char const **Args, void *Context)
+{
+    perfCounterForMainLoop.Reset();
+    return CmdLine::Status::Ok;
+}
+
 CmdLine::ProcessorDesc consoleTaskCmdProcessors[] =
     {
         {SetRTCDateTime, "setTime", "Set the RTC date and time. Format: 'YYYY-MM-DD HH:MM:SS'"},
@@ -131,6 +156,8 @@ CmdLine::ProcessorDesc consoleTaskCmdProcessors[] =
         {BoilerProcessor, "boiler", "Boiler related menu"},
         {HaMQTTProcessor, "mqtt", "MQTT/HA related menu"},
         {StartNetworkCmdProcessor, "network", "Network related menu"},
+        {ShowPerfCounters, "perf", "Show performance counters"},
+        {ResetPerfCounters, "perfReset", "Reset performance counters"},
 };
 int const LengthOfConsoleTaskCmdProcessors = sizeof(consoleTaskCmdProcessors) / sizeof(consoleTaskCmdProcessors[0]);
 
@@ -271,7 +298,7 @@ void setup()
     (
         MainThreadEntry,
         static_cast<const char*>("Loop Thread"),
-        (1024 + 500) / 4,           /* usStackDepth in words */
+        (2048 + 500) / 4,           /* usStackDepth in words */
         nullptr,                    /* pvParameters */
         1,                          /* uxPriority */
         &mainThread                 /* pxCreatedTask */
@@ -379,6 +406,18 @@ void FinishStart()
 //** foreground thread loop
 void loop() 
 {
+    static bool firstTime = true;
+    if (firstTime)
+    {
+        firstTime = false;
+        uSecClock.Reset();
+        perfCounterForMainLoop.Reset();
+    }
+
+
+    perfCounterForMainLoop.Start();
+    //uSecClock.Accumulate();
+
     consoleTask.loop();
     telnetConsole.loop();
 
@@ -403,4 +442,6 @@ void loop()
 
     network.loop();     // give network a chance to do its thing
     haMqttClient.loop();
+
+    perfCounterForMainLoop.Stop();
 }

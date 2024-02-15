@@ -49,6 +49,7 @@ void __attribute__ ((noinline)) FailFast(const char* FileName, int LineNumber)
 //* Common support functions
 SharedBuffer<256> sharedPrintfBuffer;
 
+//* limited printf to a stream - uses a shared thread-safe buffer to avoid stack overflow issues
 int printf(Stream &ToStream, const char *Format, ...)
 {
     int size;
@@ -60,9 +61,31 @@ int printf(Stream &ToStream, const char *Format, ...)
         char* buffer = (char*)handle.GetBuffer();
 
         size = vsnprintf(buffer, handle.GetSize(), Format, args);
-        ToStream.print(buffer);
+        ToStream.write(buffer, size);
     }
     va_end(args);
 
     return size;
+}
+
+// uint64_t to string conversion
+char const *const UInt64ToString(uint64_t Value)
+{
+    static char buffer[21]; // Static buffer for the result
+    int i = 19;             // Start from the end of the buffer
+    buffer[20] = '\0';      // Null terminator
+
+    if (Value == 0)
+    {
+        return "0";
+    }
+
+    while (Value > 0 && i >= 0)
+    {
+        buffer[i] = (Value % 10) + '0'; // Convert the remainder to a character
+        Value /= 10;                    // Move to the next digit
+        i--;
+    }
+
+    return &buffer[i + 1]; // Adjust the pointer to skip any unused positions
 }

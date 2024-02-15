@@ -216,6 +216,10 @@ constexpr uint32_t (* VarArgsBase(void* BaseMinusOne)) [0]
     return ((uint32_t (*)[0])(((uint32_t*)BaseMinusOne) + 1));
 }
 
+//* uint64_t to string conversion
+char const *const UInt64ToString(uint64_t Value);
+
+
 //** Time/Timer support
 class Timer
 {
@@ -230,10 +234,104 @@ private:
     uint32_t    _alarmTime;         // msecs
 };
 
-class StopWatch
+//** uSec resolution clock and performance counter support
+class USecClock
 {
+public:
+    __inline uint64_t Now() { return _accumulated; } // usec
+
+    __inline USecClock()
+    {
+        Reset();
+    }
+
+    __inline void Reset()
+    {
+        _accumulated = 0;
+        _lastAccumulateTimeInMs = millis();
+        _lastAccumulateTimeInUs = micros();
+    }
+
+    // must be called at least once every 60 minutes or a FailFast will occur
+    __inline void Accumulate()
+    {
+        uint32_t now = micros();
+        uint32_t nowMs = millis();
+
+        $Assert(nowMs <= (_lastAccumulateTimeInMs + (60000 * 60)));
+        _lastAccumulateTimeInMs = nowMs;
+
+        if (now >= _lastAccumulateTimeInUs)
+        {
+            _accumulated += int64_t(now - _lastAccumulateTimeInUs);
+        }
+        else
+        {
+            _accumulated += uint64_t((1000000 - _lastAccumulateTimeInUs) + now);
+        }
+        _lastAccumulateTimeInUs = now;
+    }
+
+private:
+    uint32_t _lastAccumulateTimeInMs;
+    uint64_t _accumulated;
+    uint32_t _lastAccumulateTimeInUs;
 };
 
+class PerfCounter
+{
+private:
+    USecClock &_clock;
+    uint64_t _lastSampleStartInUSecs;
+    uint64_t _totalSamples;
+    uint64_t _totalTimeInUSecs;
+    uint64_t _maxTimeInUSecs;
+    uint64_t _minTimeInUSecs;
+
+public:
+    PerfCounter() = delete;
+    __inline PerfCounter(USecClock &ClockToUse)
+        : _clock(ClockToUse)
+    {
+        Reset();
+    }
+
+    __inline void Reset()
+    {
+        _totalSamples = 0;
+        _totalTimeInUSecs = 0;
+        _maxTimeInUSecs = 0;
+        _minTimeInUSecs = UINT64_MAX;
+    }
+
+    __inline void Start()
+    {
+        _clock.Accumulate();
+        _lastSampleStartInUSecs = _clock.Now();
+    }
+
+    __inline void Stop()
+    {
+        _clock.Accumulate();
+        uint64_t now = _clock.Now();
+        uint64_t elapsed = now - _lastSampleStartInUSecs;
+        _totalSamples++;
+        _totalTimeInUSecs += elapsed;
+        if (elapsed > _maxTimeInUSecs)
+        {
+            _maxTimeInUSecs = elapsed;
+        }
+        if (elapsed < _minTimeInUSecs)
+        {
+            _minTimeInUSecs = elapsed;
+        }
+    }
+
+    __inline uint64_t TotalSamples() { return _totalSamples; }
+    __inline uint64_t TotalTimeInUSecs() { return _totalTimeInUSecs; }
+    __inline uint64_t MaxTimeInUSecs() { return _maxTimeInUSecs; }
+    __inline uint64_t MinTimeInUSecs() { return _minTimeInUSecs; }
+};
 
 //** Generalized Arduino processing task class
 class ArduinoTask

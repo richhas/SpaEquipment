@@ -225,7 +225,7 @@ void NetworkTask::disconnect()
 
 bool NetworkTask::IsAvailable()
 {
-    return _isAvailable && (WiFi.status() == WL_CONNECTED);
+    return _isAvailable;
 }
 
 void NetworkTask::setup()
@@ -235,13 +235,12 @@ void NetworkTask::setup()
 
 void NetworkTask::loop()
 {
-    wifiJoinApTask.loop();
-
     enum class State
     {
         WaitForConfig,
         StartWiFiBegin,
         Connected,
+        DelayAfterDisconnect
     };
     static StateMachineState<State> state(State::WaitForConfig);
 
@@ -250,6 +249,8 @@ void NetworkTask::loop()
         //* Wait for the WiFiJoinApTask to complete and get the network configuration
         case State::WaitForConfig:
         {
+            wifiJoinApTask.loop();
+
             if (state.IsFirstTime())
             {
                 logger.Printf(Logger::RecType::Progress, "NetworkTask: Waiting for configuration from wifiJoinApTask...");
@@ -267,10 +268,10 @@ void NetworkTask::loop()
         break;
 
         static int status;
+        static Timer delayTimer;
+        
         case State::StartWiFiBegin:
         {
-            static Timer delayTimer;
-
             if (state.IsFirstTime())
             {
                 status = WiFi.status();
@@ -303,10 +304,13 @@ void NetworkTask::loop()
                     }
 
                     status = WiFi.begin(_ssid, _networkPassword);
-
-                    // wait 5 secs for connection
-                    delayTimer.SetAlarm(5000);
-                    return;
+                    if (status != WL_CONNECTED)
+                    {
+                        // If we get here, we are retrying but delaying for a bit - connection failed
+                        logger.Printf(Logger::RecType::Progress, "NetworkTask: WiFi.begin() failed with status: %d", status);
+                        delayTimer.SetAlarm(5000);          // cause retry in 5 seconds
+                        return;
+                    }
                 }
 
                 uint8_t mac[6];
@@ -314,25 +318,24 @@ void NetworkTask::loop()
                 String ourMAC = MacToString(mac);
 
                 IPAddress ip = WiFi.localIP();
-                if (ip == IPAddress(0, 0, 0, 0))
+                if ((networkConfigRecord.GetRecord()._useDHCP) && (ip == IPAddress(0, 0, 0, 0)))
                 {
-                    logger.Printf(Logger::RecType::Progress, "NetworkTask: DHCP IP addrress not assigned: SSID: '%s' (MAC: %s) - retrying...", 
+                    logger.Printf(Logger::RecType::Progress, "NetworkTask: DHCP IP address not assigned: SSID: '%s' (MAC: %s) - retrying...", 
                         _ssid, 
                         MacToString(mac).c_str());
                     
                     WiFi.disconnect();
-                    WiFi.end();
-
-                    delayTimer.SetAlarm(4000);
+                    delayTimer.SetAlarm(4000);              // cause retry in 4 seconds
                     return;
                 }
 
+                // Have a connection - move to Connected state
                 String      ipAddr = ip.toString();
 
                 WiFi.BSSID(&mac[0]);
                 String      apBSSID = MacToString(mac);
 
-                logger.Printf(Logger::RecType::Progress, "NetworkTask: Connected to SSID: '%s' @ %s (MAC: %s); AP BSSID: %s", 
+                logger.Printf(Logger::RecType::Progress, "NetworkTask: Connected: SSID: '%s' @ %s (MAC: %s); AP BSSID: %s", 
                     _ssid, 
                     ipAddr.c_str(),
                     ourMAC.c_str(),
@@ -340,7 +343,7 @@ void NetworkTask::loop()
 
                 state.ChangeState(State::Connected);
                 return;
-            }
+            }// end: if (state.IsFirstTime())
 
             // If we get here, we are retrying but delaying for a bit
             if (delayTimer.IsAlarmed())
@@ -352,17 +355,40 @@ void NetworkTask::loop()
 
         case State::Connected:
         {
-            status = WiFi.status();
-            if (status != WL_CONNECTED)
-            {
-                logger.Printf(Logger::RecType::Progress, "NetworkTask: Disconnected");
-                state.ChangeState(State::StartWiFiBegin);
-                return;
-            }
-
             if (state.IsFirstTime())
             {
                 _isAvailable = true;
+                delayTimer.SetAlarm(2000);  // only check every 2 seconds for WiFi status - reduce overhead to CoProc
+            }
+
+            if (delayTimer.IsAlarmed())
+            {
+                status = WiFi.status();
+                if (status != WL_CONNECTED)
+                {
+                    _isAvailable = false;
+                    WiFi.disconnect();
+
+                    logger.Printf(Logger::RecType::Progress, "NetworkTask: Disconnected - delay 2 seconds before retrying...");
+                    state.ChangeState(State::DelayAfterDisconnect);
+                    return;
+                }
+
+                delayTimer.SetAlarm(2000);  // only check every 2 seconds for WiFi status - reduce overhead to CoProc
+            }
+        }
+        break;
+
+        case State::DelayAfterDisconnect:
+        {
+            if (state.IsFirstTime())
+            {
+                delayTimer.SetAlarm(2000);  // only check after 2 seconds
+            }
+
+            if (delayTimer.IsAlarmed())
+            {
+                state.ChangeState(State::StartWiFiBegin);
             }
         }
         break;
