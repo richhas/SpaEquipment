@@ -239,6 +239,7 @@ public:
         _lastAccumulateTimeInUs = micros();
     }
 
+private:
     // must be called at least once every 60 minutes or a FailFast will occur
     __inline void Accumulate()
     {

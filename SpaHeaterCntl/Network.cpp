@@ -5,6 +5,27 @@
 #include "Network.hpp"
 #include "WiFiJoinApTask.hpp"
 
+//* Isolate WiFi and Ethernet libraries via a common NetDriver interface
+//  Nothing above this interface should know about the actual network driver;
+//  abstracted (superset) functionality. This driver is hidden from the rest of
+//  the system by the NetworkTask class APIs.
+class NetDriver
+{
+public:
+    virtual shared_ptr<Client> CreateClient() = 0;
+    virtual shared_ptr<Server> CreateServer(int Port) = 0;
+    virtual shared_ptr<UDP> CreateUDP() = 0;
+    virtual shared_ptr<Client> available(shared_ptr<Server> Server) = 0;
+
+    //* Server specific methods
+    virtual void begin(shared_ptr<Server> Server) = 0;
+    virtual void end(shared_ptr<Server> Server) = 0;
+    //.
+    //.
+    //.
+};
+
+
 //** Network configuration record
 #pragma pack(push, 1)
 struct NetworkConfig

@@ -11,7 +11,8 @@ class Logger
 public:
     enum class RecType : uint8_t
     {
-        Start = 0xFF, // Resered: start of log marker record
+        Start = 0xFF, // Reserved: start of log marker record
+        NtpRef = 0xFE, // Reserved: NTP reference time marker record
         Info = 1,
         Progress = 2,
         Warning = 3,

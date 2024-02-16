@@ -19,6 +19,7 @@ using namespace std;
 #include "Logger.hpp"
 #include "Network.hpp"
 #include "MQTT_HA.hpp"
+#include "NtpClient.hpp"
 
 
 

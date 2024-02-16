@@ -8,7 +8,6 @@ static_assert(configTOTAL_HEAP_SIZE == 0x1400, "freeRTOS heap is not the correct
 // Tasks to add:
 //    Not WiFi dependent:
 //      DiagLog store and fwd
-//      NTP
 //
 //    TODO:
 //      - Change log prints to use correct log levels
@@ -19,6 +18,7 @@ static_assert(configTOTAL_HEAP_SIZE == 0x1400, "freeRTOS heap is not the correct
 //      - Make dual targeted - UNO R4 Minima (Ethernet) and UNO R4 Maxie (WiFi)
 //         - ARDUINO_UNOR4_WIFI vs ARDUINO_UNOR4_MINIMA
 //      - Make libraries??
+//      - Add NTP config
 //
 
 #if !defined(ARDUINO_UNOR4_WIFI)
@@ -247,6 +247,9 @@ CmdLine::Status ShowPerfCounters(Stream &CmdStream, int Argc, char const **Args,
     printf(CmdStream, "Perf Counter: Telnet Console loop:\n");
     telnetConsole.GetPerfCounter().Print(CmdStream, 4);
 
+    printf(CmdStream, "Perf Counter: NTP Client loop:\n");
+    ntpClient.GetPerfCounter().Print(CmdStream, 4);
+
     printf(CmdStream, "Perf Counter: Boiler Background Task loop:\n");
     boilerControllerTask.GetPerfCounter().Print(CmdStream, 4);
 
@@ -260,6 +263,7 @@ CmdLine::Status ResetPerfCounters(Stream &CmdStream, int Argc, char const **Args
     haMqttClient.GetPerfCounter().Reset();
     consoleTask.GetPerfCounter().Reset();
     telnetConsole.GetPerfCounter().Reset();
+    ntpClient.GetPerfCounter().Reset();
     boilerControllerTask.GetPerfCounter().Reset();
     return CmdLine::Status::Ok;
 }
@@ -405,6 +409,7 @@ void FinishStart()
     network.Begin();
     haMqttClient.Setup();
     telnetConsole.Setup();
+    ntpClient.Setup();
 }
 
 //byte padBuffer[1900 + 3072];     // with rtos heap of 5K (configTOTAL_HEAP_SIZE == 0x1400)
@@ -438,4 +443,5 @@ void loop()
 
     network.Loop();     // give network a chance to do its thing
     haMqttClient.Loop();
+    ntpClient.Loop();
 }

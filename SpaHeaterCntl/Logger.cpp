@@ -33,6 +33,10 @@ const char* Logger::ToString(Logger::RecType From)
             return "SLOG";
             break;
 
+        case RecType::NtpRef:
+            return "NTPR";
+            break;
+
         case RecType::Info:
             return "INFO";
             break;
