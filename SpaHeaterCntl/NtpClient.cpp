@@ -13,7 +13,17 @@ void NTPClient::setup()
     logger.Printf(Logger::RecType::Progress, "NTPClient: Starting - time server: %s", _timeServerIPAddress.toString().c_str());
     _udp = move(NetworkTask::CreateUDP());
     $Assert(_udp.get() != nullptr);
-    $Assert(_udp->begin(_localPort));
+    if (!_udp->begin(_localPort))
+    {
+        logger.Printf(Logger::RecType::Critical, "NTPClient: UDP begin failed - trying secondary port");
+
+        if (!_udp->begin(_localPort + 1))
+        {
+            logger.Printf(Logger::RecType::Critical, "NTPClient: UDP begin on secondary port failed - disabling NTPClient");
+            _udp.reset();
+            _udp = nullptr;
+        }
+    }
 }
 
 void NTPClient::loop()
@@ -24,6 +34,7 @@ void NTPClient::loop()
         Start,
         WaitForResponse,
         Done,
+        StallForever    
     };
     static StateMachineState<State> state(State::WaitForNetwork);
 
@@ -33,6 +44,19 @@ void NTPClient::loop()
     {
     case State::WaitForNetwork:
     {
+        if (state.IsFirstTime())
+        {
+            //logger.Printf(Logger::RecType::Progress, "NtpClient: WaitForNetwork");
+        
+            if (_udp == nullptr)
+            {
+                // UDP is not available for some reason - NtpClient disabled
+                logger.Printf(Logger::RecType::Warning, "NtpClient: UDP is not available - NtpClient disabled!");
+                state.ChangeState(State::StallForever);
+                return;
+            }
+        }
+
         if (network.IsAvailable())
         {
             state.ChangeState(State::Start);
@@ -40,19 +64,25 @@ void NTPClient::loop()
     }
     break;
 
+    case State::StallForever:
+    {
+    }
+    break;
+
     case State::Start:
     {
         if (state.IsFirstTime())
         {
+            logger.Printf(Logger::RecType::Progress, "NtpClient: Start: sendingRequest");
             sendNTPpacket();
-            timer.SetAlarm(1000);
+            timer.SetAlarm(2000);
         }
 
         // Wait for 1 second for the request to be sent
         if (timer.IsAlarmed())
         {
-            // Now allow 1 second for the response
-            timer.SetAlarm(1000);
+            // Now allow 2 seconds for the response
+            timer.SetAlarm(2000);
             state.ChangeState(State::WaitForResponse);
         }
     }
@@ -90,7 +120,7 @@ void NTPClient::loop()
 
         if (foundRsp)
         {
-            timer.SetAlarm(uint32_t(60000) * 10); // 10 minutes until next update
+            timer.SetAlarm(uint32_t(60000) /* * 10 */); // 10 minutes until next update
             state.ChangeState(State::Done);
             return;
         }

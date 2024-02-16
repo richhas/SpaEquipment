@@ -207,7 +207,7 @@ char const *const UInt64ToString(uint64_t Value);
 class Timer
 {
 public:
-    static const uint32_t FOREVER = UINT32_MAX;
+    static constexpr uint32_t FOREVER = UINT32_MAX;
 
     __inline Timer() : _alarmTime(0) {}
     __inline Timer(uint32_t AlarmInMs) { _alarmTime = millis() + AlarmInMs; }
